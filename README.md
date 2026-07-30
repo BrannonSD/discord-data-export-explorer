@@ -23,7 +23,7 @@
   - One-click **`Open Chat in Discord`** button (`discord://-/channels/@me/{channel_id}`) to jump directly into the exact DM chat room in native Discord!
   - **`Open Profile`** button (`discord://-/users/{user_id}`) to view recipient profile modal.
 - **📋 User ID Export Tools**:
-  - Copy `<@user_id>` mention tags (e.g. `<@879372420706881556>`) to paste into any Discord chat and mention/view users natively (works with Vencord repair).
+  - Copy `<@user_id>` mention tags (e.g. `<@879372420706881556>`) to paste into any Discord chat and mention/view users natively.
   - Copy raw numeric User IDs or web profile links with one click.
 - **🔍 Fast Search**: Instant in-conversation search and global message search across your entire history (100,000+ messages indexed in seconds).
 - **📊 Analytics & Statistics**: Visual breakdown of total messages sent, top DM contacts, and most active servers.
