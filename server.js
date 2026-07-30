@@ -22,7 +22,7 @@ let dataCache = {
   account: null,
   channels: [],
   servers: {},
-  messages: {}, // channelId -> array of messages
+  messages: {}, // channelId -> array of messages (sorted oldest -> newest)
   isIndexed: false,
   indexingError: null
 };
@@ -40,46 +40,85 @@ function readJsonFile(filePath) {
   return null;
 }
 
-// Recover Deleted User IDs from Activity telemetry logs
+// Clean usernames: strip "Direct Message with " and useless "#0" / "#0000" discriminators
+function cleanUsername(name) {
+  if (!name) return '';
+  let cleaned = String(name).trim();
+  cleaned = cleaned.replace(/^Direct Message with\s+/i, '');
+  cleaned = cleaned.replace(/#(0|0000)$/, '');
+  return cleaned;
+}
+
+// Multi-Source Deleted User ID Recovery Engine
 async function recoverDeletedUserIds(targetDir, deletedDmChannelIds, myUserId) {
   const recoveredMap = new Map(); // channelId -> recipientUserId
-  const reportingDir = path.join(targetDir, 'Activity', 'reporting');
-  
-  if (!fs.existsSync(reportingDir) || deletedDmChannelIds.length === 0) {
-    return recoveredMap;
-  }
-
-  const files = fs.readdirSync(reportingDir).filter(f => f.endsWith('.json'));
-  if (files.length === 0) return recoveredMap;
-
   const targetSet = new Set(deletedDmChannelIds);
 
-  for (const file of files) {
-    if (targetSet.size === 0) break;
-    const filePath = path.join(reportingDir, file);
-    try {
-      const fileStream = fs.createReadStream(filePath);
-      const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+  if (targetSet.size === 0) return recoveredMap;
 
-      for await (const line of rl) {
-        if (targetSet.size === 0) break;
-        for (const channelId of targetSet) {
-          if (line.includes(channelId)) {
-            try {
-              const obj = JSON.parse(line);
-              const rIds = obj._governance_meta?.reporting?.recipient_ids || [];
-              const otherId = rIds.find(id => String(id) !== String(myUserId));
-              if (otherId && otherId !== 'Deleted User') {
-                recoveredMap.set(channelId, String(otherId));
-                targetSet.delete(channelId);
-                break;
-              }
-            } catch (e) {}
-          }
+  // Source 1: Scan messages and attachment URLs
+  for (const channelId of targetSet) {
+    const mPath = path.join(targetDir, 'Messages', `c${channelId}`, 'messages.json');
+    if (fs.existsSync(mPath)) {
+      const msgs = readJsonFile(mPath) || [];
+      for (const m of msgs) {
+        const textMatch = (m.Contents || '').match(/<@!?(\d{17,19})>/);
+        if (textMatch && String(textMatch[1]) !== String(myUserId)) {
+          recoveredMap.set(channelId, String(textMatch[1]));
+          targetSet.delete(channelId);
+          break;
+        }
+        const attMatch = (m.Attachments || '').match(/\/attachments\/\d+\/(\d{17,19})\//);
+        if (attMatch && String(attMatch[1]) !== String(channelId)) {
+          recoveredMap.set(channelId, String(attMatch[1]));
+          targetSet.delete(channelId);
+          break;
         }
       }
-    } catch (e) {
-      console.error(`[Recovery Error] ${file}:`, e.message);
+    }
+  }
+
+  // Source 2: Telemetry Activity Logs
+  if (targetSet.size > 0) {
+    const activityDir = path.join(targetDir, 'Activity');
+    const logFiles = [];
+
+    function findLogFiles(dir) {
+      if (!fs.existsSync(dir)) return;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) findLogFiles(full);
+        else if (entry.name.endsWith('.json')) logFiles.push(full);
+      }
+    }
+    findLogFiles(activityDir);
+
+    for (const file of logFiles) {
+      if (targetSet.size === 0) break;
+      try {
+        const fileStream = fs.createReadStream(file);
+        const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+
+        for await (const line of rl) {
+          if (targetSet.size === 0) break;
+          for (const channelId of targetSet) {
+            if (line.includes(channelId)) {
+              try {
+                const obj = JSON.parse(line);
+                const rIds = obj._governance_meta?.reporting?.recipient_ids || obj.recipient_ids || [];
+                const otherId = rIds.find(id => String(id) !== String(myUserId) && String(id) !== 'Deleted User');
+                if (otherId) {
+                  recoveredMap.set(channelId, String(otherId));
+                  targetSet.delete(channelId);
+                  break;
+                }
+              } catch (e) {}
+            }
+          }
+        }
+      } catch (e) {
+        console.error(`[Recovery Error] File ${file}:`, e.message);
+      }
     }
   }
 
@@ -101,6 +140,10 @@ async function indexPackage(targetDir) {
     // 1. Load Account Info
     const userPath = path.join(packageDir, 'Account', 'user.json');
     dataCache.account = readJsonFile(userPath);
+    if (dataCache.account) {
+      dataCache.account.username = cleanUsername(dataCache.account.username);
+      dataCache.account.global_name = cleanUsername(dataCache.account.global_name);
+    }
 
     // 2. Load Servers Index
     const serversPath = path.join(packageDir, 'Servers', 'index.json');
@@ -134,10 +177,12 @@ async function indexPackage(targetDir) {
             const indexedDesc = messagesIndex[channelId] || '';
 
             let type = channelInfo?.type || 'UNKNOWN';
-            let name = channelInfo?.name || '';
-            if (!name) {
-              name = indexedDesc || `Channel ${channelId}`;
+            let rawName = channelInfo?.name || '';
+            if (!rawName) {
+              rawName = indexedDesc || `Channel ${channelId}`;
             }
+
+            let name = cleanUsername(rawName);
 
             let guildName = channelInfo?.guild?.name || '';
             let guildId = channelInfo?.guild?.id || '';
@@ -160,9 +205,9 @@ async function indexPackage(targetDir) {
               }
               const match = indexedDesc.match(/^Direct Message with (.+)$/);
               if (match) {
-                recipientHandle = match[1];
-                if (!name || name === `Channel ${channelId}`) {
-                  name = `@${recipientHandle}`;
+                recipientHandle = cleanUsername(match[1]);
+                if (!name || name === `Channel ${channelId}` || name.startsWith('Direct Message with')) {
+                  name = recipientHandle.startsWith('@') ? recipientHandle : `@${recipientHandle}`;
                 }
               }
 
@@ -174,8 +219,8 @@ async function indexPackage(targetDir) {
               type = 'GROUP_DM';
             }
 
-            // Sort messages chronologically
-            messages.sort((a, b) => new Date(a.Timestamp) - new Date(b.Timestamp));
+            // Sort messages chronologically: oldest first [0] -> newest last [length-1]
+            messages.sort((a, b) => new Date(a.Timestamp || 0) - new Date(b.Timestamp || 0));
             dataCache.messages[channelId] = messages;
 
             const firstMsg = messages[0];
@@ -203,9 +248,9 @@ async function indexPackage(targetDir) {
       }
     }
 
-    // 5. Run Telemetry Activity Log Recovery for Deleted Users
+    // 5. Run Multi-Source Recovery for Deleted Users
     if (deletedDmChannelIds.length > 0) {
-      console.log(`[Recovery Engine] Scanning activity logs for ${deletedDmChannelIds.length} Deleted User DMs...`);
+      console.log(`[Recovery Engine] Scanning multi-source logs for ${deletedDmChannelIds.length} Deleted User DMs...`);
       const recoveredMap = await recoverDeletedUserIds(packageDir, deletedDmChannelIds, dataCache.account?.id || '');
       
       for (const ch of channels) {
@@ -235,6 +280,22 @@ async function indexPackage(targetDir) {
   }
 }
 
+// Serve User Avatar File from Account directory
+app.get('/api/account/avatar', (req, res) => {
+  if (!packageDir) return res.status(404).send('No package loaded');
+  const accountDir = path.join(packageDir, 'Account');
+  const possibleAvatars = ['avatar.gif', 'avatar.png', 'avatar.jpg', 'avatar.webp'];
+
+  for (const file of possibleAvatars) {
+    const fullPath = path.join(accountDir, file);
+    if (fs.existsSync(fullPath)) {
+      return res.sendFile(fullPath);
+    }
+  }
+
+  res.status(404).send('Avatar not found');
+});
+
 // API Routes
 app.get('/api/status', (req, res) => {
   res.json({
@@ -261,6 +322,7 @@ app.get('/api/channels', (req, res) => {
   });
 });
 
+// Paginated messages
 app.get('/api/channel/:id/messages', (req, res) => {
   const channelId = req.params.id;
   const limit = parseInt(req.query.limit) || 100;
@@ -273,16 +335,21 @@ app.get('/api/channel/:id/messages', (req, res) => {
     messages = messages.filter(m => (m.Contents || '').toLowerCase().includes(search));
   }
 
-  const paginated = messages.slice(offset, offset + limit);
+  const total = messages.length;
+  const endIndex = Math.max(0, total - offset);
+  const startIndex = Math.max(0, total - offset - limit);
+
+  const paginated = messages.slice(startIndex, endIndex);
   const channelMeta = dataCache.channels.find(c => String(c.id) === String(channelId));
 
   res.json({
     channelId,
     channelMeta,
-    totalMessages: messages.length,
+    totalMessages: total,
     offset,
     limit,
-    messages: paginated
+    messages: paginated,
+    hasMore: startIndex > 0
   });
 });
 
@@ -298,7 +365,8 @@ app.get('/api/search', (req, res) => {
 
   for (const [channelId, msgs] of Object.entries(dataCache.messages)) {
     const channelMeta = dataCache.channels.find(c => String(c.id) === String(channelId));
-    for (const msg of msgs) {
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const msg = msgs[i];
       if ((msg.Contents || '').toLowerCase().includes(query)) {
         results.push({
           channelId,
@@ -376,7 +444,6 @@ app.post('/api/set-package-path', async (req, res) => {
   }
 });
 
-// Auto-start if --package argument was supplied
 if (packageDir) {
   indexPackage(packageDir);
 }

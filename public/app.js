@@ -6,6 +6,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentTab = 'all';
   let filterQuery = '';
   let activeOffset = 0;
+  let hasMoreMessages = true;
+  let isLoadingMessages = false;
+  let sortDirection = 'asc';
   const LIMIT = 100;
 
   // DOM Elements
@@ -22,7 +25,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnLaunchChat = document.getElementById('btn-launch-chat');
   const btnLaunchProfile = document.getElementById('btn-launch-profile');
   const btnCopyTag = document.getElementById('btn-copy-tag');
+  const btnCopySearch = document.getElementById('btn-copy-search');
   const btnCopyRawId = document.getElementById('btn-copy-raw-id');
+  
+  const btnSortOrder = document.getElementById('btn-sort-order');
+  const sortOrderIcon = document.getElementById('sort-order-icon');
+  const sortOrderLabel = document.getElementById('sort-order-label');
 
   const channelFilterInput = document.getElementById('channel-filter-input');
   const chatSearchInput = document.getElementById('chat-search-input');
@@ -63,8 +71,54 @@ document.addEventListener('DOMContentLoaded', () => {
     await fetchChannels();
   }
 
+  function cleanName(str) {
+    if (!str) return '';
+    let cleaned = String(str).trim();
+    cleaned = cleaned.replace(/^Direct Message with\s+/i, '');
+    cleaned = cleaned.replace(/#(0|0000)$/, '');
+    return cleaned;
+  }
+
+  function getRecipientAvatarHtml(ch) {
+    const isDm = ch.type === 'DM';
+    if (!isDm) {
+      return `<div class="channel-avatar-circle" style="background: rgba(255,255,255,0.05); font-size: 1.1rem;">${ch.type === 'GROUP_DM' ? '👥' : '#'}</div>`;
+    }
+
+    const name = cleanName(ch.name || ch.recipientHandle || 'User');
+    const initial = name.charAt(0).toUpperCase();
+
+    if (ch.isDeletedUser && (!ch.recipientId || ch.recipientId === 'Deleted User')) {
+      return `<div class="channel-avatar-circle deleted-avatar" title="Deleted Account">💀</div>`;
+    }
+
+    let avatarUrl = '';
+    if (ch.recipientId && ch.recipientId !== 'Deleted User') {
+      try {
+        const idx = Number(BigInt(ch.recipientId) % 6n);
+        avatarUrl = `https://cdn.discordapp.com/embed/avatars/${idx}.png`;
+      } catch (e) {
+        avatarUrl = '';
+      }
+    }
+
+    if (avatarUrl) {
+      return `
+        <div class="channel-avatar-circle">
+          <img src="${avatarUrl}" alt="${escapeHtml(name)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+          <span class="avatar-fallback" style="display: none;">${initial}</span>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="channel-avatar-circle">
+        <span class="avatar-fallback">${initial}</span>
+      </div>
+    `;
+  }
+
   function setupEventListeners() {
-    // Tab switching
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -74,20 +128,33 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
 
-    // Channel filter input
+    btnSortOrder.addEventListener('click', () => {
+      sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+      if (sortDirection === 'asc') {
+        sortOrderIcon.textContent = '⬇️';
+        sortOrderLabel.textContent = 'Oldest Top';
+        showToast('Message Order: Oldest at top (chronological)');
+      } else {
+        sortOrderIcon.textContent = '⬆️';
+        sortOrderLabel.textContent = 'Oldest Bottom';
+        showToast('Message Order: Oldest at bottom (reverse chronological)');
+      }
+      if (activeChannel) {
+        loadMessages(activeChannel.id, chatSearchInput.value.trim(), true);
+      }
+    });
+
     channelFilterInput.addEventListener('input', (e) => {
       filterQuery = e.target.value.trim().toLowerCase();
       renderChannelList();
     });
 
-    // Chat search input
     chatSearchInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && activeChannel) {
         loadMessages(activeChannel.id, e.target.value.trim(), true);
       }
     });
 
-    // Global search input
     globalSearchInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         const query = e.target.value.trim();
@@ -97,18 +164,28 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    // Load more messages
     btnLoadMore.addEventListener('click', () => {
-      if (activeChannel) {
+      if (activeChannel && hasMoreMessages && !isLoadingMessages) {
         activeOffset += LIMIT;
         loadMessages(activeChannel.id, chatSearchInput.value.trim(), false);
       }
     });
 
-    // Launch Chat Room in Discord
+    messageFeedEl.addEventListener('scroll', () => {
+      if (messageFeedEl.scrollTop < 80 && activeChannel && hasMoreMessages && !isLoadingMessages) {
+        activeOffset += LIMIT;
+        loadMessages(activeChannel.id, chatSearchInput.value.trim(), false);
+      }
+    });
+
     btnLaunchChat.addEventListener('click', (e) => {
       e.preventDefault();
       if (!activeChannel) return;
+
+      if (activeChannel.isDeletedUser && (!activeChannel.recipientId || activeChannel.recipientId === 'Deleted User')) {
+        showToast('Discord closes DMs server-side when an account is deleted. Full chat history is preserved in this local viewer.');
+        return;
+      }
 
       let appUri = '';
       let webUri = '';
@@ -130,10 +207,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    // Launch User Profile Modal in Discord
     btnLaunchProfile.addEventListener('click', (e) => {
       e.preventDefault();
-      if (!activeChannel?.recipientId) return;
+      if (!activeChannel?.recipientId || activeChannel.recipientId === 'Deleted User') {
+        showToast('Account permanently deleted by Discord.');
+        return;
+      }
 
       const recipientId = activeChannel.recipientId;
       const appUri = `discord://-/users/${recipientId}`;
@@ -147,15 +226,23 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast(`Opening user profile in Discord...`);
     });
 
-    // Copy Mention Tag <@user_id>
     btnCopyTag.addEventListener('click', () => {
-      if (activeChannel?.recipientId) {
+      if (activeChannel?.recipientId && activeChannel.recipientId !== 'Deleted User') {
         const tag = `<@${activeChannel.recipientId}>`;
         copyToClipboard(tag, `Copied mention tag ${tag}! (Paste into Discord chat)`);
+      } else {
+        showToast('No User ID available for this deleted account.');
       }
     });
 
-    // Copy Raw ID
+    btnCopySearch.addEventListener('click', () => {
+      const filterValue = activeChannel?.recipientId && activeChannel.recipientId !== 'Deleted User'
+        ? `from:${activeChannel.recipientId}`
+        : (activeChannel?.recipientHandle ? `from:${cleanName(activeChannel.recipientHandle)}` : `from:${activeChannel.id}`);
+      
+      copyToClipboard(filterValue, `Copied search filter "${filterValue}" (Paste into Discord Ctrl+F search)`);
+    });
+
     btnCopyRawId.addEventListener('click', () => {
       const targetId = activeChannel?.recipientId || activeChannel?.id;
       if (targetId) {
@@ -163,7 +250,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    // Folder Selector Modal
     btnChangeFolder.addEventListener('click', () => {
       modalFolder.style.display = 'flex';
     });
@@ -200,7 +286,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    // Modals
     btnStats.addEventListener('click', openStatsModal);
     modalStatsClose.addEventListener('click', () => modalStats.style.display = 'none');
     modalSearchClose.addEventListener('click', () => modalSearch.style.display = 'none');
@@ -212,7 +297,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Check Status
   async function checkStatus() {
     try {
       const res = await fetch('/api/status');
@@ -230,19 +314,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Fetch Account Info
   async function fetchAccountInfo() {
     try {
       const res = await fetch('/api/account');
       accountData = await res.json();
-      userNameEl.textContent = accountData.global_name || accountData.username || 'Discord User';
-      userAvatarEl.textContent = (accountData.username || 'U').charAt(0).toUpperCase();
+      const displayName = cleanName(accountData.global_name || accountData.username || 'Discord User');
+      userNameEl.textContent = displayName;
+      
+      const avatarInitial = displayName.charAt(0).toUpperCase();
+      userAvatarEl.innerHTML = `
+        <img src="/api/account/avatar" alt="Avatar" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+        <span class="avatar-fallback" style="display: none;">${avatarInitial}</span>
+      `;
     } catch (err) {
       console.error('Failed to load account info:', err);
     }
   }
 
-  // Fetch Channels List
   async function fetchChannels() {
     try {
       const res = await fetch('/api/channels');
@@ -261,16 +349,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Render Sidebar Channels
   function renderChannelList() {
     let filtered = allChannels.filter(c => {
       if (currentTab === 'dm' && c.type !== 'DM') return false;
       if (currentTab === 'server' && c.type === 'DM') return false;
 
       if (filterQuery) {
-        const nameMatch = (c.name || '').toLowerCase().includes(filterQuery);
+        const nameMatch = cleanName(c.name || '').toLowerCase().includes(filterQuery);
         const guildMatch = (c.guildName || '').toLowerCase().includes(filterQuery);
-        const handleMatch = (c.recipientHandle || '').toLowerCase().includes(filterQuery);
+        const handleMatch = cleanName(c.recipientHandle || '').toLowerCase().includes(filterQuery);
         const idMatch = (c.recipientId || '').includes(filterQuery);
         return nameMatch || guildMatch || handleMatch || idMatch;
       }
@@ -285,17 +372,20 @@ document.addEventListener('DOMContentLoaded', () => {
     channelListEl.innerHTML = filtered.map(ch => {
       const isDm = ch.type === 'DM';
       const isActive = activeChannel && activeChannel.id === ch.id;
-      const icon = isDm ? '👤' : (ch.type === 'GROUP_DM' ? '👥' : '#');
+      const avatarHtml = getRecipientAvatarHtml(ch);
+      const cleanedChName = cleanName(ch.name);
+      const cleanedHandle = cleanName(ch.recipientHandle);
+
       const subtext = isDm 
-        ? (ch.recipientHandle ? `@${ch.recipientHandle}` : `ID: ${ch.recipientId || ch.id}`) 
+        ? (cleanedHandle ? `@${cleanedHandle}` : (ch.recipientId && ch.recipientId !== 'Deleted User' ? `ID: ${ch.recipientId}` : 'Deleted Account')) 
         : (ch.guildName || 'Server');
 
       return `
         <div class="channel-item ${isDm ? 'is-dm' : ''} ${isActive ? 'active' : ''}" data-id="${ch.id}">
           <div class="channel-info-group">
-            <div class="channel-icon">${icon}</div>
+            ${avatarHtml}
             <div class="channel-details">
-              <span class="channel-name">${escapeHtml(ch.name)}</span>
+              <span class="channel-name">${escapeHtml(cleanedChName)}</span>
               <span class="channel-subtext">${escapeHtml(subtext)}</span>
             </div>
           </div>
@@ -313,20 +403,32 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Select Channel
   function selectChannel(channel) {
     activeChannel = channel;
     activeOffset = 0;
+    hasMoreMessages = true;
     renderChannelList();
 
-    chatTitleEl.textContent = channel.name;
-    chatIconEl.textContent = channel.type === 'DM' ? '👤' : (channel.type === 'GROUP_DM' ? '👥' : '#');
+    const cleanedName = cleanName(channel.name);
+    chatTitleEl.textContent = cleanedName;
+    chatIconEl.innerHTML = getRecipientAvatarHtml(channel);
     userExportToolbar.style.display = 'flex';
     
     if (channel.type === 'DM') {
       chatSubtitleEl.textContent = `Direct Message History • ${channel.messageCount} messages`;
-      badgeIdLabel.textContent = 'User ID:';
-      exportUserIdText.textContent = channel.recipientId || channel.id;
+      
+      if (channel.recipientId && channel.recipientId !== 'Deleted User') {
+        badgeIdLabel.textContent = channel.isRecovered ? 'User ID (Recovered):' : 'User ID:';
+        exportUserIdText.textContent = channel.recipientId;
+        btnLaunchProfile.style.opacity = '1';
+        btnCopyTag.style.opacity = '1';
+      } else {
+        badgeIdLabel.textContent = 'User ID:';
+        exportUserIdText.textContent = 'Unavailable (Deleted Account)';
+        btnLaunchProfile.style.opacity = '0.5';
+        btnCopyTag.style.opacity = '0.5';
+      }
+      
       btnLaunchProfile.style.display = 'inline-flex';
       btnCopyTag.style.display = 'inline-flex';
     } else {
@@ -341,8 +443,10 @@ document.addEventListener('DOMContentLoaded', () => {
     loadMessages(channel.id, '', true);
   }
 
-  // Load Messages for Active Channel
   async function loadMessages(channelId, search = '', reset = true) {
+    if (isLoadingMessages) return;
+    isLoadingMessages = true;
+
     if (reset) {
       activeOffset = 0;
       messageFeedEl.innerHTML = `<div class="loading-state">Loading messages...</div>`;
@@ -353,7 +457,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch(url);
       const data = await res.json();
 
-      const messages = data.messages || [];
+      let messages = data.messages || [];
+      hasMoreMessages = data.hasMore !== false && (activeOffset + messages.length < data.totalMessages);
+
+      if (sortDirection === 'desc') {
+        messages = [...messages].reverse();
+      }
 
       if (reset) {
         if (messages.length === 0) {
@@ -364,6 +473,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
           `;
           feedFooter.style.display = 'none';
+          isLoadingMessages = false;
           return;
         }
         messageFeedEl.innerHTML = '';
@@ -373,28 +483,59 @@ document.addEventListener('DOMContentLoaded', () => {
       
       if (reset) {
         messageFeedEl.innerHTML = html;
-        messageFeedEl.scrollTop = messageFeedEl.scrollHeight;
+        messageFeedEl.scrollTop = sortDirection === 'asc' ? messageFeedEl.scrollHeight : 0;
       } else {
-        const oldHeight = messageFeedEl.scrollHeight;
-        messageFeedEl.insertAdjacentHTML('afterbegin', html);
-        messageFeedEl.scrollTop = messageFeedEl.scrollHeight - oldHeight;
+        const oldScrollHeight = messageFeedEl.scrollHeight;
+        messageFeedEl.insertAdjacentHTML(sortDirection === 'asc' ? 'afterbegin' : 'beforeend', html);
+        if (sortDirection === 'asc') {
+          messageFeedEl.scrollTop = messageFeedEl.scrollHeight - oldScrollHeight;
+        }
       }
 
       feedFooter.style.display = 'flex';
-      feedStatusText.textContent = `Loaded ${Math.min(activeOffset + messages.length, data.totalMessages)} of ${data.totalMessages} messages`;
-      btnLoadMore.style.display = (activeOffset + messages.length < data.totalMessages) ? 'inline-flex' : 'none';
+      feedStatusText.textContent = `Displaying ${Math.min(activeOffset + messages.length, data.totalMessages)} of ${data.totalMessages} messages`;
+      btnLoadMore.style.display = hasMoreMessages ? 'inline-flex' : 'none';
 
     } catch (err) {
       console.error('Failed to load messages:', err);
       messageFeedEl.innerHTML = `<div class="loading-state">Error loading messages.</div>`;
+    } finally {
+      isLoadingMessages = false;
     }
   }
 
-  // Render Individual Message Card
   function renderMessageCard(msg) {
     const isMe = accountData && (String(msg.AuthorID) === String(accountData.id) || !msg.AuthorID);
-    const authorName = isMe ? (accountData.global_name || accountData.username || 'You') : (activeChannel?.recipientHandle || 'User');
+    const authorName = isMe ? cleanName(accountData.global_name || accountData.username || 'You') : cleanName(activeChannel?.recipientHandle || activeChannel?.name || 'User');
     const avatarLetter = authorName.charAt(0).toUpperCase();
+
+    let avatarImgSrc = '';
+    if (isMe) {
+      avatarImgSrc = '/api/account/avatar';
+    } else if (activeChannel?.recipientId && String(activeChannel.recipientId) !== 'Deleted User') {
+      try {
+        const idx = Number(BigInt(activeChannel.recipientId) % 6n);
+        avatarImgSrc = `https://cdn.discordapp.com/embed/avatars/${idx}.png`;
+      } catch (e) {
+        avatarImgSrc = '';
+      }
+    }
+
+    let avatarHtml = '';
+    if (avatarImgSrc) {
+      avatarHtml = `
+        <div class="msg-avatar">
+          <img src="${avatarImgSrc}" alt="${escapeHtml(authorName)}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" />
+          <span class="avatar-fallback" style="display: none;">${avatarLetter}</span>
+        </div>
+      `;
+    } else {
+      avatarHtml = `
+        <div class="msg-avatar">
+          <span class="avatar-fallback">${avatarLetter}</span>
+        </div>
+      `;
+    }
 
     const formattedTime = msg.Timestamp 
       ? new Date(msg.Timestamp).toLocaleString('en-US', {
@@ -404,39 +545,86 @@ document.addEventListener('DOMContentLoaded', () => {
       : '';
 
     const formattedContent = parseMarkdown(msg.Contents || '');
-
-    let attachmentsHtml = '';
-    if (msg.Attachments) {
-      const urls = msg.Attachments.split(/\s+/).filter(u => u.startsWith('http'));
-      if (urls.length > 0) {
-        attachmentsHtml = `
-          <div class="msg-attachments">
-            ${urls.map(url => `
-              <a href="${escapeHtml(url)}" target="_blank" class="attachment-pill">
-                📎 ${escapeHtml(url.split('/').pop().split('?')[0] || 'Attachment')}
-              </a>
-            `).join('')}
-          </div>
-        `;
-      }
-    }
+    const mediaHtml = renderMessageMedia(msg.Contents || '', msg.Attachments || '');
 
     return `
       <div class="message-item">
-        <div class="msg-avatar">${avatarLetter}</div>
+        ${avatarHtml}
         <div class="msg-content-wrapper">
           <div class="msg-header">
             <span class="msg-author">${escapeHtml(authorName)}</span>
             <span class="msg-timestamp">${formattedTime}</span>
           </div>
           <div class="msg-text">${formattedContent}</div>
-          ${attachmentsHtml}
+          ${mediaHtml}
         </div>
       </div>
     `;
   }
 
-  // Parse Markdown & Mentions
+  function renderMessageMedia(contents, attachmentsString) {
+    let html = '';
+
+    if (attachmentsString) {
+      const urls = attachmentsString.split(/\s+/).filter(u => u.trim().length > 0);
+      if (urls.length > 0) {
+        html += '<div class="msg-attachments">';
+        urls.forEach(url => {
+          const cleanUrl = url.trim();
+          const filename = cleanUrl.split('/').pop().split('?')[0] || 'Attachment';
+          const ext = filename.split('.').pop().toLowerCase();
+
+          if (['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext)) {
+            html += `
+              <div class="msg-media-block">
+                <img src="${escapeHtml(cleanUrl)}" alt="${escapeHtml(filename)}" class="msg-inline-img" onerror="this.style.display='none';" />
+                <a href="${escapeHtml(cleanUrl)}" target="_blank" class="attachment-pill">📎 ${escapeHtml(filename)}</a>
+              </div>
+            `;
+          } else if (['mp4', 'webm', 'mov'].includes(ext)) {
+            html += `
+              <div class="msg-media-block">
+                <video controls class="msg-inline-video" src="${escapeHtml(cleanUrl)}"></video>
+                <a href="${escapeHtml(cleanUrl)}" target="_blank" class="attachment-pill">🎬 ${escapeHtml(filename)}</a>
+              </div>
+            `;
+          } else if (['mp3', 'ogg', 'wav'].includes(ext)) {
+            html += `
+              <div class="msg-media-block">
+                <audio controls src="${escapeHtml(cleanUrl)}"></audio>
+                <a href="${escapeHtml(cleanUrl)}" target="_blank" class="attachment-pill">🎵 ${escapeHtml(filename)}</a>
+              </div>
+            `;
+          } else {
+            html += `
+              <div class="msg-media-block">
+                <a href="${escapeHtml(cleanUrl)}" target="_blank" class="attachment-pill">📄 ${escapeHtml(filename)}</a>
+              </div>
+            `;
+          }
+        });
+        html += '</div>';
+      }
+    }
+
+    const ytRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/gi;
+    let ytMatch;
+    const embeddedYt = new Set();
+    while ((ytMatch = ytRegex.exec(contents)) !== null) {
+      const videoId = ytMatch[1];
+      if (!embeddedYt.has(videoId)) {
+        embeddedYt.add(videoId);
+        html += `
+          <div class="msg-embed-container youtube-embed">
+            <iframe src="https://www.youtube.com/embed/${videoId}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          </div>
+        `;
+      }
+    }
+
+    return html;
+  }
+
   function parseMarkdown(text) {
     if (!text) return '';
     let escaped = escapeHtml(text);
@@ -445,18 +633,17 @@ document.addEventListener('DOMContentLoaded', () => {
     escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
     escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     escaped = escaped.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    escaped = escaped.replace(/&lt;@!?(\d+)&gt;/g, '<span class="user-id-badge">@$1</span>');
+    escaped = escaped.replace(/&lt;@!?(\d+)&gt;/g, '<span class="user-mention-pill">@$1</span>');
 
     return escaped;
   }
 
-  // Global Search
   async function performGlobalSearch(query) {
     modalSearch.style.display = 'flex';
     modalSearchBody.innerHTML = `<div class="loading-state">Searching all conversations for "${escapeHtml(query)}"...</div>`;
 
     try {
-      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=1000`);
       const data = await res.json();
 
       if (data.results.length === 0) {
@@ -465,13 +652,13 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       modalSearchBody.innerHTML = `
-        <p style="margin-bottom: 12px; color: var(--text-muted); font-size: 0.9rem;">Found ${data.total} matching messages:</p>
+        <p style="margin-bottom: 12px; color: var(--text-muted); font-size: 0.9rem;">Found ${data.total} matching messages (displaying up to 1,000):</p>
         <div style="display: flex; flex-direction: column; gap: 10px;">
           ${data.results.map(r => `
             <div class="message-item" style="background: var(--bg-tertiary); cursor: pointer;" onclick="jumpToChannel('${r.channelId}')">
               <div class="msg-content-wrapper">
                 <div class="msg-header">
-                  <span class="msg-author">${escapeHtml(r.channelName)}</span>
+                  <span class="msg-author">${escapeHtml(cleanName(r.channelName))}</span>
                   <span class="msg-timestamp">${r.message.Timestamp || ''}</span>
                 </div>
                 <div class="msg-text">${parseMarkdown(r.message.Contents)}</div>
@@ -492,7 +679,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (channel) selectChannel(channel);
   };
 
-  // Open Stats Modal
   async function openStatsModal() {
     modalStats.style.display = 'flex';
     modalStatsBody.innerHTML = `<div class="loading-state">Calculating message statistics...</div>`;
@@ -504,7 +690,7 @@ document.addEventListener('DOMContentLoaded', () => {
       modalStatsBody.innerHTML = `
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px;">
           <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 1.5rem; font-weight: 700; color: var(--brand-light);">${stats.totalMessages.toLocaleString()}</div>
+            <div style="font-size: 1.5rem; font-weight: 700; color: var(--brand-blurple);">${stats.totalMessages.toLocaleString()}</div>
             <div style="font-size: 0.8rem; color: var(--text-muted);">Total Messages</div>
           </div>
           <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px; text-align: center;">
@@ -521,7 +707,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px;">
           ${stats.topDms.map(d => `
             <div style="display: flex; justify-content: space-between; background: var(--bg-tertiary); padding: 8px 12px; border-radius: 6px; font-size: 0.9rem;">
-              <span>👤 ${escapeHtml(d.name)} ${d.recipientId ? `<code style="font-size: 0.75rem; color: var(--brand-light);">(${d.recipientId})</code>` : ''}</span>
+              <span>👤 ${escapeHtml(cleanName(d.name))} ${d.recipientId && d.recipientId !== 'Deleted User' ? `<code style="font-size: 0.75rem; color: var(--brand-blurple);">(${d.recipientId})</code>` : ''}</span>
               <span style="font-weight: 600; color: var(--text-bold);">${d.messageCount} msgs</span>
             </div>
           `).join('')}
@@ -531,7 +717,7 @@ document.addEventListener('DOMContentLoaded', () => {
         <div style="display: flex; flex-direction: column; gap: 6px;">
           ${stats.topGuilds.map(g => `
             <div style="display: flex; justify-content: space-between; background: var(--bg-tertiary); padding: 8px 12px; border-radius: 6px; font-size: 0.9rem;">
-              <span>🏰 ${escapeHtml(g.name)}</span>
+              <span>🏰 ${escapeHtml(cleanName(g.name))}</span>
               <span style="font-weight: 600; color: var(--text-bold);">${g.count} msgs</span>
             </div>
           `).join('')}
@@ -543,7 +729,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Utilities
   function copyToClipboard(text, toastMsg) {
     navigator.clipboard.writeText(text).then(() => {
       showToast(toastMsg || 'Copied to clipboard!');

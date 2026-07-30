@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Discord Data Export Explorer - v1.0.0 Standalone Desktop Application
+Discord Data Export Explorer - v1.2.0 Standalone Desktop Application Launcher
 """
 import os
 import sys
@@ -14,13 +14,15 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
+VERSION = "1.2.0"
+
 # Global Data Cache
 PACKAGE_DIR = ""
 DATA_CACHE = {
     "account": {},
     "channels": [],
     "servers": {},
-    "messages": {}, # channelId -> list of msg objects
+    "messages": {}, # channelId -> list of msg objects (sorted oldest -> newest)
     "is_indexed": False,
     "indexing_error": None
 }
@@ -30,7 +32,6 @@ SERVER_INSTANCE = None
 SERVER_THREAD = None
 
 def get_resource_path(relative_path):
-    """Get absolute path to resource, works for dev and for PyInstaller bundle"""
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
@@ -44,44 +45,77 @@ def read_json_file(filepath):
         print(f"[Error] Reading {filepath}: {e}")
     return None
 
+def clean_username(name):
+    if not name:
+        return ""
+    cleaned = str(name).strip()
+    cleaned = re.sub(r'^Direct Message with\s+', '', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'#(0|0000)$', '', cleaned)
+    return cleaned
+
 def recover_deleted_user_ids(target_dir, deleted_dm_channel_ids, my_user_id):
-    recovered_map = {} # channelId -> recipientUserId
-    reporting_dir = os.path.join(target_dir, "Activity", "reporting")
-
-    if not os.path.exists(reporting_dir) or not deleted_dm_channel_ids:
-        return recovered_map
-
-    files = [f for f in os.listdir(reporting_dir) if f.endswith(".json")]
-    if not files:
-        return recovered_map
-
+    recovered_map = {}
     target_set = set(deleted_dm_channel_ids)
 
-    for file in files:
-        if not target_set:
-            break
-        file_path = os.path.join(reporting_dir, file)
-        try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                lines_scanned = 0
-                for line in f:
-                    lines_scanned += 1
-                    if lines_scanned > 200000 or not target_set:
-                        break
-                    for channel_id in list(target_set):
-                        if channel_id in line:
-                            try:
-                                obj = json.loads(line)
-                                r_ids = obj.get("_governance_meta", {}).get("reporting", {}).get("recipient_ids", [])
-                                other_id = next((str(r) for r in r_ids if str(r) != str(my_user_id) and str(r) != "Deleted User"), None)
-                                if other_id:
-                                    recovered_map[channel_id] = other_id
-                                    target_set.remove(channel_id)
-                                    break
-                            except Exception:
-                                pass
-        except Exception as e:
-            print(f"[Recovery Error] {file}: {e}")
+    if not target_set:
+        return recovered_map
+
+    for channel_id in list(target_set):
+        m_path = os.path.join(target_dir, "Messages", f"c{channel_id}", "messages.json")
+        if os.path.exists(m_path):
+            msgs = read_json_file(m_path) or []
+            for m in msgs:
+                text_match = re.search(r'<@!?(\d{17,19})>', m.get("Contents") or "")
+                if text_match and str(text_match.group(1)) != str(my_user_id):
+                    recovered_map[channel_id] = str(text_match.group(1))
+                    target_set.remove(channel_id)
+                    break
+                att_match = re.search(r'/attachments/\d+/(\d{17,19})/', m.get("Attachments") or "")
+                if att_match and str(att_match.group(1)) != str(channel_id):
+                    recovered_map[channel_id] = str(att_match.group(1))
+                    target_set.remove(channel_id)
+                    break
+
+    if target_set:
+        activity_dir = os.path.join(target_dir, "Activity")
+        log_files = []
+
+        def find_log_files(d):
+            if not os.path.exists(d):
+                return
+            for entry in os.listdir(d):
+                full = os.path.join(d, entry)
+                if os.path.isdir(full):
+                    find_log_files(full)
+                elif entry.endswith('.json'):
+                    log_files.append(full)
+
+        find_log_files(activity_dir)
+
+        for file in log_files:
+            if not target_set:
+                break
+            try:
+                with open(file, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines_scanned = 0
+                    for line in f:
+                        lines_scanned += 1
+                        if lines_scanned > 150000 or not target_set:
+                            break
+                        for channel_id in list(target_set):
+                            if channel_id in line:
+                                try:
+                                    obj = json.loads(line)
+                                    r_ids = obj.get("_governance_meta", {}).get("reporting", {}).get("recipient_ids", []) or obj.get("recipient_ids", [])
+                                    other_id = next((str(r) for r in r_ids if str(r) != str(my_user_id) and str(r) != "Deleted User"), None)
+                                    if other_id:
+                                        recovered_map[channel_id] = other_id
+                                        target_set.remove(channel_id)
+                                        break
+                                except Exception:
+                                    pass
+            except Exception as e:
+                print(f"[Recovery Error] {file}: {e}")
 
     return recovered_map
 
@@ -96,121 +130,151 @@ def index_package_data(target_dir):
         return False
 
     try:
-        # 1. Account
-        account_path = os.path.join(PACKAGE_DIR, "Account", "user.json")
-        DATA_CACHE["account"] = read_json_file(account_path) or {}
+        start_time = time.time()
 
-        # 2. Servers Index
+        account_path = os.path.join(PACKAGE_DIR, "Account", "user.json")
+        acc = read_json_file(account_path) or {}
+        if acc:
+            acc["username"] = clean_username(acc.get("username"))
+            acc["global_name"] = clean_username(acc.get("global_name"))
+        DATA_CACHE["account"] = acc
+
         servers_path = os.path.join(PACKAGE_DIR, "Servers", "index.json")
         DATA_CACHE["servers"] = read_json_file(servers_path) or {}
 
-        # 3. Messages Index
         msg_index_path = os.path.join(PACKAGE_DIR, "Messages", "index.json")
         msg_index = read_json_file(msg_index_path) or {}
 
-        # 4. Scan Messages Folder
         messages_dir = os.path.join(PACKAGE_DIR, "Messages")
         channels = []
         DATA_CACHE["messages"].clear()
         deleted_dm_channel_ids = []
+        seen_channel_ids = set()
 
+        index_keys = list(msg_index.keys()) if isinstance(msg_index, dict) else []
+
+        def process_channel_folder(entry, channel_id_override=None):
+            folder_path = os.path.join(messages_dir, entry)
+            if not os.path.exists(folder_path) or not os.path.isdir(folder_path):
+                return None
+
+            channel_json_path = os.path.join(folder_path, "channel.json")
+            messages_json_path = os.path.join(folder_path, "messages.json")
+            channel_info = read_json_file(channel_json_path)
+
+            channel_id = str(channel_info.get("id") if channel_info else (channel_id_override or entry.replace("c", "")))
+            if channel_id in seen_channel_ids:
+                return None
+            seen_channel_ids.add(channel_id)
+
+            indexed_desc = msg_index.get(channel_id, "")
+
+            ch_type = channel_info.get("type", "UNKNOWN") if channel_info else "UNKNOWN"
+            raw_name = channel_info.get("name", "") if channel_info else ""
+            if not raw_name:
+                raw_name = indexed_desc or f"Channel {channel_id}"
+
+            ch_name = clean_username(raw_name)
+
+            guild_info = channel_info.get("guild", {}) if channel_info else {}
+            guild_id = str(guild_info.get("id", ""))
+            guild_name = guild_info.get("name", "")
+
+            if guild_id and not guild_name and guild_id in DATA_CACHE["servers"]:
+                guild_name = DATA_CACHE["servers"][guild_id]
+
+            recipients = channel_info.get("recipients", []) if channel_info else []
+            recipient_id = None
+            recipient_handle = ""
+            is_deleted_user = False
+
+            my_user_id = str(DATA_CACHE["account"].get("id", ""))
+
+            if ch_type == "DM" or indexed_desc.startswith("Direct Message with"):
+                ch_type = "DM"
+                if recipients:
+                    for r in recipients:
+                        if str(r) != my_user_id:
+                            recipient_id = str(r)
+                            break
+                    if not recipient_id:
+                        recipient_id = str(recipients[0])
+
+                match = re.match(r"^Direct Message with (.+)$", indexed_desc)
+                if match:
+                    recipient_handle = clean_username(match.group(1))
+                    if not ch_name or ch_name == f"Channel {channel_id}" or ch_name.startswith("Direct Message with"):
+                        ch_name = recipient_handle if recipient_handle.startswith("@") else f"@{recipient_handle}"
+
+                if recipient_id == "Deleted User" or not recipient_id or "Unknown Participant" in recipient_handle:
+                    is_deleted_user = True
+                    deleted_dm_channel_ids.append(channel_id)
+
+            elif ch_type == "GROUP_DM" or indexed_desc.startswith("Group DM"):
+                ch_type = "GROUP_DM"
+
+            msgs = []
+            if os.path.exists(messages_json_path):
+                msgs = read_json_file(messages_json_path) or []
+                msgs.sort(key=lambda m: m.get("Timestamp") or "")
+                DATA_CACHE["messages"][channel_id] = msgs
+
+            first_ts = msgs[0].get("Timestamp") if msgs else None
+            last_ts = msgs[-1].get("Timestamp") if msgs else None
+
+            return {
+                "id": channel_id,
+                "folderName": entry,
+                "type": ch_type,
+                "name": ch_name,
+                "guildId": guild_id,
+                "guildName": guild_name,
+                "recipients": recipients,
+                "recipientId": recipient_id,
+                "recipientHandle": recipient_handle,
+                "isDeletedUser": is_deleted_user,
+                "isRecovered": False,
+                "indexedDesc": indexed_desc,
+                "messageCount": len(msgs),
+                "firstMessageTimestamp": first_ts,
+                "lastMessageTimestamp": last_ts
+            }
+
+        # 1. Process channels in exact original order of Messages/index.json
+        for ch_id in index_keys:
+            folder_name = f"c{ch_id}"
+            ch_data = process_channel_folder(folder_name, ch_id)
+            if ch_data:
+                channels.append(ch_data)
+
+        # 2. Process any unindexed folders in Messages/
         if os.path.exists(messages_dir):
             for entry in os.listdir(messages_dir):
-                folder_path = os.path.join(messages_dir, entry)
-                if os.path.isdir(folder_path):
-                    channel_json_path = os.path.join(folder_path, "channel.json")
-                    messages_json_path = os.path.join(folder_path, "messages.json")
+                ch_data = process_channel_folder(entry)
+                if ch_data:
+                    channels.append(ch_data)
 
-                    channel_info = read_json_file(channel_json_path)
-                    messages = read_json_file(messages_json_path) or []
-
-                    if channel_info or messages:
-                        channel_id = str(channel_info.get("id") if channel_info else entry.replace("c", ""))
-                        indexed_desc = msg_index.get(channel_id, "")
-
-                        ch_type = channel_info.get("type", "UNKNOWN") if channel_info else "UNKNOWN"
-                        ch_name = channel_info.get("name", "") if channel_info else ""
-                        if not ch_name:
-                            ch_name = indexed_desc or f"Channel {channel_id}"
-
-                        guild_info = channel_info.get("guild", {}) if channel_info else {}
-                        guild_id = str(guild_info.get("id", ""))
-                        guild_name = guild_info.get("name", "")
-
-                        if guild_id and not guild_name and guild_id in DATA_CACHE["servers"]:
-                            guild_name = DATA_CACHE["servers"][guild_id]
-
-                        recipients = channel_info.get("recipients", []) if channel_info else []
-                        recipient_id = None
-                        recipient_handle = ""
-                        is_deleted_user = False
-
-                        my_user_id = str(DATA_CACHE["account"].get("id", ""))
-
-                        if ch_type == "DM" or indexed_desc.startswith("Direct Message with"):
-                            ch_type = "DM"
-                            if recipients:
-                                for r in recipients:
-                                    if str(r) != my_user_id:
-                                        recipient_id = str(r)
-                                        break
-                                if not recipient_id:
-                                    recipient_id = str(recipients[0])
-
-                            match = re.match(r"^Direct Message with (.+)$", indexed_desc)
-                            if match:
-                                recipient_handle = match.group(1)
-                                if not ch_name or ch_name == f"Channel {channel_id}":
-                                    ch_name = f"@{recipient_handle}"
-
-                            if recipient_id == "Deleted User" or not recipient_id or "Unknown Participant" in recipient_handle:
-                                is_deleted_user = True
-                                deleted_dm_channel_ids.append(channel_id)
-
-                        elif ch_type == "GROUP_DM" or indexed_desc.startswith("Group DM"):
-                            ch_type = "GROUP_DM"
-
-                        # Sort messages chronologically
-                        messages.sort(key=lambda m: m.get("Timestamp", ""))
-                        DATA_CACHE["messages"][channel_id] = messages
-
-                        first_ts = messages[0].get("Timestamp") if messages else None
-                        last_ts = messages[-1].get("Timestamp") if messages else None
-
-                        channels.append({
-                            "id": channel_id,
-                            "folderName": entry,
-                            "type": ch_type,
-                            "name": ch_name,
-                            "guildId": guild_id,
-                            "guildName": guild_name,
-                            "recipients": recipients,
-                            "recipientId": recipient_id,
-                            "recipientHandle": recipient_handle,
-                            "isDeletedUser": is_deleted_user,
-                            "isRecovered": False,
-                            "indexedDesc": indexed_desc,
-                            "messageCount": len(messages),
-                            "firstMessageTimestamp": first_ts,
-                            "lastMessageTimestamp": last_ts
-                        })
-
-        # 5. Run Telemetry Activity Log Recovery for Deleted Users
-        if deleted_dm_channel_ids:
-            print(f"[Recovery Engine] Scanning activity logs for {len(deleted_dm_channel_ids)} Deleted User DMs...")
-            recovered_map = recover_deleted_user_ids(PACKAGE_DIR, deleted_dm_channel_ids, DATA_CACHE["account"].get("id", ""))
-
-            for ch in channels:
-                if ch["isDeletedUser"] and ch["id"] in recovered_map:
-                    ch["recipientId"] = recovered_map[ch["id"]]
-                    ch["isRecovered"] = True
-                    print(f"[Recovered User ID] DM {ch['id']} -> {ch['recipientId']}")
-
-        channels.sort(key=lambda c: c["lastMessageTimestamp"] or "", reverse=True)
         DATA_CACHE["channels"] = channels
         DATA_CACHE["is_indexed"] = True
         DATA_CACHE["indexing_error"] = None
-        print(f"[Success] Indexed {len(channels)} channels and DMs.")
+
+        total_msgs = sum(c["messageCount"] for c in channels)
+        elapsed = time.time() - start_time
+        print(f"[Verified Indexing] Tallied {total_msgs:,} exact messages across {len(channels)} channels in {elapsed:.3f}s!")
+
+        if deleted_dm_channel_ids:
+            def bg_recovery():
+                print(f"[Background Recovery] Scanning for {len(deleted_dm_channel_ids)} deleted user IDs...")
+                recovered_map = recover_deleted_user_ids(PACKAGE_DIR, deleted_dm_channel_ids, DATA_CACHE["account"].get("id", ""))
+                for ch in DATA_CACHE["channels"]:
+                    if ch["isDeletedUser"] and ch["id"] in recovered_map:
+                        ch["recipientId"] = recovered_map[ch["id"]]
+                        ch["isRecovered"] = True
+                print(f"[Background Recovery Complete] Recovered {len(recovered_map)} deleted user IDs.")
+
+            t = threading.Thread(target=bg_recovery, daemon=True)
+            t.start()
+
         return True
 
     except Exception as e:
@@ -218,6 +282,26 @@ def index_package_data(target_dir):
         DATA_CACHE["is_indexed"] = False
         DATA_CACHE["indexing_error"] = str(e)
         return False
+
+def get_channel_messages(channel_id):
+    if channel_id in DATA_CACHE["messages"]:
+        return DATA_CACHE["messages"][channel_id]
+
+    ch_info = next((c for c in DATA_CACHE["channels"] if str(c["id"]) == str(channel_id)), None)
+    folder_name = ch_info["folderName"] if ch_info else f"c{channel_id}"
+
+    messages_json_path = os.path.join(PACKAGE_DIR, "Messages", folder_name, "messages.json")
+    if not os.path.exists(messages_json_path):
+        messages_json_path = os.path.join(PACKAGE_DIR, "Messages", f"c{channel_id}", "messages.json")
+
+    msgs = read_json_file(messages_json_path) or []
+    msgs.sort(key=lambda m: m.get("Timestamp") or "")
+    DATA_CACHE["messages"][channel_id] = msgs
+
+    if ch_info:
+        ch_info["messageCount"] = len(msgs)
+
+    return msgs
 
 
 class DiscordRequestHandler(BaseHTTPRequestHandler):
@@ -271,12 +355,32 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
         path_name = parsed.path
         query_params = urllib.parse.parse_qs(parsed.query)
 
+        if path_name == "/api/account/avatar":
+            if PACKAGE_DIR:
+                account_dir = os.path.join(PACKAGE_DIR, "Account")
+                for fn in ["avatar.gif", "avatar.png", "avatar.jpg", "avatar.webp"]:
+                    fp = os.path.join(account_dir, fn)
+                    if os.path.exists(fp):
+                        ext = os.path.splitext(fn)[1].lower()
+                        mime = "image/gif" if ext == ".gif" else ("image/png" if ext == ".png" else "image/jpeg")
+                        with open(fp, 'rb') as f:
+                            data = f.read()
+                        self.send_response(200)
+                        self.send_header('Content-Type', mime)
+                        self.send_header('Content-Length', str(len(data)))
+                        self.end_headers()
+                        return self.wfile.write(data)
+            self.send_response(404)
+            self.end_headers()
+            return
+
         if path_name == "/api/status":
             self.send_json({
                 "isIndexed": DATA_CACHE["is_indexed"],
                 "packageDir": PACKAGE_DIR,
                 "error": DATA_CACHE["indexing_error"],
-                "totalChannels": len(DATA_CACHE["channels"])
+                "totalChannels": len(DATA_CACHE["channels"]),
+                "version": VERSION
             })
         elif path_name == "/api/account":
             acc = DATA_CACHE["account"]
@@ -298,7 +402,7 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
         elif path_name.startswith("/api/channel/") and path_name.endswith("/messages"):
             parts = path_name.split("/")
             channel_id = parts[3]
-            messages = DATA_CACHE["messages"].get(channel_id, [])
+            messages = get_channel_messages(channel_id)
 
             search_query = query_params.get("search", [""])[0].lower()
             if search_query:
@@ -316,16 +420,21 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
             except ValueError:
                 limit = 100
 
-            paginated = filtered[offset:offset + limit]
+            total = len(filtered)
+            end_index = max(0, total - offset)
+            start_index = max(0, total - offset - limit)
+
+            paginated = filtered[start_index:end_index]
             ch_meta = next((c for c in DATA_CACHE["channels"] if str(c["id"]) == str(channel_id)), None)
 
             self.send_json({
                 "channelId": channel_id,
                 "channelMeta": ch_meta,
-                "totalMessages": len(filtered),
+                "totalMessages": total,
                 "offset": offset,
                 "limit": limit,
-                "messages": paginated
+                "messages": paginated,
+                "hasMore": start_index > 0
             })
         elif path_name == "/api/search":
             query = query_params.get("q", [""])[0].strip().lower()
@@ -333,22 +442,24 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
                 return self.send_json({"results": [], "total": 0})
 
             try:
-                limit = int(query_params.get("limit", [100])[0])
+                limit = int(query_params.get("limit", [1000])[0])
             except ValueError:
-                limit = 100
+                limit = 1000
 
             results = []
-            for ch_id, msgs in DATA_CACHE["messages"].items():
-                ch_meta = next((c for c in DATA_CACHE["channels"] if str(c["id"]) == str(ch_id)), None)
-                for msg in msgs:
+            for ch in DATA_CACHE["channels"]:
+                ch_id = ch["id"]
+                msgs = get_channel_messages(ch_id)
+                for i in range(len(msgs) - 1, -1, -1):
+                    msg = msgs[i]
                     if query in (msg.get("Contents") or "").lower():
                         results.append({
                             "channelId": ch_id,
-                            "channelName": ch_meta.get("name") if ch_meta else f"Channel {ch_id}",
-                            "guildName": ch_meta.get("guildName") if ch_meta else "",
-                            "type": ch_meta.get("type") if ch_meta else "UNKNOWN",
-                            "recipientId": ch_meta.get("recipientId") if ch_meta else None,
-                            "recipientHandle": ch_meta.get("recipientHandle") if ch_meta else "",
+                            "channelName": ch.get("name") or f"Channel {ch_id}",
+                            "guildName": ch.get("guildName") or "",
+                            "type": ch.get("type") or "UNKNOWN",
+                            "recipientId": ch.get("recipientId"),
+                            "recipientHandle": ch.get("recipientHandle") or "",
                             "message": msg
                         })
                         if len(results) >= limit:
@@ -435,115 +546,101 @@ def start_http_server():
         print(f"[Server Error] {e}")
 
 
-class LauncherApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Discord Data Export Explorer v1.0.0")
-        self.root.geometry("580x320")
-        self.root.resizable(False, False)
-        
-        self.package_path = tk.StringVar()
+def launch_gui():
+    root = tk.Tk()
+    root.title(f"Discord Data Export Explorer v{VERSION}")
+    root.geometry("680x420")
+    root.resizable(False, False)
 
-        # Discord Color Tokens
-        bg_main = "#2b2d31"
-        bg_input = "#1e1f22"
-        fg_bold = "#f2f3f5"
-        fg_muted = "#949ba4"
-        accent_blurple = "#5865f2"
-        accent_hover = "#4752c4"
-        btn_red = "#da373c"
+    try:
+        root.tk.call('wm', 'iconphoto', root._w, tk.PhotoImage(data='''iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAadEVYdFNvZnR3YXJlAFBhaW50Lk5FVCB2My41.10VzTEQAAABPSURBVDhPY2AYBaMGAgAAFBAAAe9fFOcAAAAASUVORUS5CYII='''))
+    except Exception:
+        pass
 
-        self.root.configure(bg=bg_main)
+    root.configure(bg="#1e1f22")
 
-        # Header Title
-        lbl_title = tk.Label(root, text="💬 Discord Data Export Explorer", font=("Segoe UI", 16, "bold"), bg=bg_main, fg=accent_blurple)
-        lbl_title.pack(anchor="w", padx=24, pady=(20, 5))
+    # Header Title Banner
+    header_frame = tk.Frame(root, bg="#1e1f22")
+    header_frame.pack(fill="x", padx=40, pady=(28, 10))
 
-        lbl_desc = tk.Label(root, text="Select your unzipped Discord Data Package folder (containing Account, Messages, Servers):", font=("Segoe UI", 10), bg=bg_main, fg=fg_muted, wraplength=530, justify="left")
-        lbl_desc.pack(anchor="w", padx=24, pady=(0, 16))
+    title_label = tk.Label(header_frame, text="Discord Data Export Explorer", font=("Segoe UI", 18, "bold"), fg="#f2f3f5", bg="#1e1f22")
+    title_label.pack(side="left")
 
-        # Folder Selection Entry + Browse Button Frame
-        frame_folder = tk.Frame(root, bg=bg_main)
-        frame_folder.pack(fill="x", padx=24, pady=5)
+    ver_badge = tk.Label(header_frame, text=f"v{VERSION}", font=("Segoe UI", 9, "bold"), fg="#ffffff", bg="#5865f2", padx=6, pady=2)
+    ver_badge.pack(side="left", padx=10)
 
-        entry_path = tk.Entry(frame_folder, textvariable=self.package_path, font=("Segoe UI", 10), bg=bg_input, fg=fg_bold, insertbackground="#ffffff", borderwidth=1, relief="solid")
-        entry_path.pack(side="left", fill="x", expand=True, ipady=6, padx=(0, 10))
+    sub_label = tk.Label(root, text="Select your unzipped Discord Data Package folder to begin exploring your chat history.", font=("Segoe UI", 10), fg="#949ba4", bg="#1e1f22", justify="left")
+    sub_label.pack(anchor="w", padx=40, pady=(0, 20))
 
-        btn_browse = tk.Button(frame_folder, text="📁 Browse Folder...", command=self.browse_folder, font=("Segoe UI", 9, "bold"), bg="#35373c", fg="#ffffff", activebackground="#404249", borderwidth=0, cursor="hand2", relief="flat")
-        btn_browse.pack(side="right", ipadx=12, ipady=6)
+    # Main Card Container
+    card_frame = tk.Frame(root, bg="#2b2d31", highlightthickness=1, highlightbackground="#3f4248", highlightcolor="#3f4248")
+    card_frame.pack(fill="x", padx=40, pady=5, ipady=15)
 
-        # Action Buttons Frame
-        frame_btns = tk.Frame(root, bg=bg_main)
-        frame_btns.pack(fill="x", padx=24, pady=20)
+    card_title = tk.Label(card_frame, text="Data Export Package Directory:", font=("Segoe UI", 10, "bold"), fg="#f2f3f5", bg="#2b2d31")
+    card_title.pack(anchor="w", padx=20, pady=(15, 8))
 
-        self.btn_start = tk.Button(frame_btns, text="🚀 Start Server & Open Browser", command=self.on_start_click, font=("Segoe UI", 10, "bold"), bg=accent_blurple, fg="#ffffff", activebackground=accent_hover, borderwidth=0, cursor="hand2", relief="flat")
-        self.btn_start.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 6))
+    path_frame = tk.Frame(card_frame, bg="#2b2d31")
+    path_frame.pack(fill="x", padx=20)
 
-        self.btn_stop = tk.Button(frame_btns, text="🛑 Stop Server", command=self.stop_server, font=("Segoe UI", 10, "bold"), bg=btn_red, fg="#ffffff", activebackground="#a1282b", borderwidth=0, state="disabled", cursor="hand2", relief="flat")
-        self.btn_stop.pack(side="right", fill="x", expand=True, ipady=8, padx=(6, 0))
+    path_var = tk.StringVar(value=PACKAGE_DIR)
+    entry_path = tk.Entry(path_frame, textvariable=path_var, font=("Segoe UI", 10), bg="#1e1f22", fg="#f2f3f5", insertbackground="#f2f3f5", relief="flat", highlightthickness=1, highlightbackground="#3f4248", highlightcolor="#5865f2")
+    entry_path.pack(side="left", fill="x", expand=True, ipady=6, padx=(0, 10))
 
-        # Status Footer
-        self.lbl_status = tk.Label(root, text="Status: Ready. Please select a folder and click Start Server.", font=("Segoe UI", 10, "italic"), bg=bg_main, fg=fg_muted)
-        self.lbl_status.pack(anchor="w", padx=24, pady=(0, 15))
+    def browse_folder():
+        chosen = filedialog.askdirectory(title="Select Discord Export Package Folder")
+        if chosen:
+            path_var.set(chosen)
 
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+    btn_browse = tk.Button(path_frame, text="Browse...", font=("Segoe UI", 9, "bold"), bg="#4e5058", fg="#ffffff", activebackground="#6d6f78", activeforeground="#ffffff", relief="flat", cursor="hand2", command=browse_folder, padx=14, pady=4)
+    btn_browse.pack(side="right")
 
-    def browse_folder(self):
-        folder = filedialog.askdirectory(title="Select your Discord Data Package folder")
-        if folder:
-            self.package_path.set(folder)
+    status_var = tk.StringVar(value="Ready to load package." if not PACKAGE_DIR else f"Loaded: {PACKAGE_DIR}")
+    status_label = tk.Label(root, textvariable=status_var, font=("Segoe UI", 9, "bold"), fg="#23a55a", bg="#1e1f22")
+    status_label.pack(pady=(18, 12))
 
-    def on_start_click(self):
-        folder = self.package_path.get().strip()
-        if not folder or not os.path.exists(folder):
-            messagebox.showwarning("Select Folder", "Please select a valid Discord Data Package folder.")
+    def on_launch():
+        target = path_var.get().strip()
+        if not target or not os.path.exists(target):
+            messagebox.showerror("Invalid Folder", "Please select a valid existing Discord Data Export folder.")
             return
 
-        self.btn_start.config(state="disabled")
-        self.lbl_status.config(text="Status: Indexing package & recovering Deleted User IDs...", fg="#e3b341")
+        status_var.set("Indexing Discord package...")
+        root.update_idletasks()
 
-        def background_index():
-            success = index_package_data(folder)
-            def update_ui():
-                if success:
-                    self.lbl_status.config(text=f"Status: Server running on http://localhost:{PORT} ({len(DATA_CACHE['channels'])} chats indexed)", fg="#23a55a")
-                    self.btn_stop.config(state="normal")
-                    webbrowser.open(f"http://localhost:{PORT}")
-                else:
-                    self.lbl_status.config(text="Status: Failed to index package.", fg="#da373c")
-                    self.btn_start.config(state="normal")
-                    messagebox.showerror("Error Loading Data", DATA_CACHE["indexing_error"] or "Failed to parse Discord package folder.")
-            self.root.after(0, update_ui)
+        success = index_package_data(target)
+        if success:
+            webbrowser.open(f"http://localhost:{PORT}")
+            status_var.set("Application loaded successfully!")
+        else:
+            messagebox.showerror("Indexing Error", DATA_CACHE["indexing_error"] or "Failed to index package.")
+            status_var.set("Indexing failed.")
 
-        threading.Thread(target=background_index, daemon=True).start()
+    btn_launch = tk.Button(root, text="🚀 Launch Explorer in Browser", font=("Segoe UI", 11, "bold"), bg="#5865f2", fg="#ffffff", activebackground="#4752c4", activeforeground="#ffffff", relief="flat", cursor="hand2", command=on_launch, padx=28, pady=8)
+    btn_launch.pack(pady=(0, 15))
 
-    def stop_server(self):
-        DATA_CACHE["is_indexed"] = False
-        DATA_CACHE["channels"].clear()
-        DATA_CACHE["messages"].clear()
-        self.btn_start.config(state="normal")
-        self.btn_stop.config(state="disabled")
-        self.lbl_status.config(text="Status: Server stopped. Package unloaded.", fg="#949ba4")
-
-    def on_close(self):
-        if SERVER_INSTANCE:
-            SERVER_INSTANCE.shutdown()
-        self.root.destroy()
+    root.mainloop()
 
 
-if __name__ == "__main__":
+def main():
+    global PACKAGE_DIR, SERVER_THREAD
+
+    if "--package" in sys.argv:
+        package_arg_idx = sys.argv.index("--package")
+        if package_arg_idx + 1 < len(sys.argv):
+            PACKAGE_DIR = os.path.abspath(sys.argv[package_arg_idx + 1])
+
+    if not PACKAGE_DIR:
+        cwd = os.getcwd()
+        if os.path.exists(os.path.join(cwd, "Account", "user.json")) or os.path.exists(os.path.join(cwd, "Messages")):
+            PACKAGE_DIR = cwd
+
     SERVER_THREAD = threading.Thread(target=start_http_server, daemon=True)
     SERVER_THREAD.start()
 
-    for i, arg in enumerate(sys.argv):
-        if arg == "--package" and i + 1 < len(sys.argv):
-            index_package_data(sys.argv[i + 1])
-            break
+    if PACKAGE_DIR and os.path.exists(PACKAGE_DIR):
+        index_package_data(PACKAGE_DIR)
 
-    root = tk.Tk()
-    app = LauncherApp(root)
-    if PACKAGE_DIR:
-        app.package_path.set(PACKAGE_DIR)
-        app.lbl_status.config(text=f"Status: Loaded {len(DATA_CACHE['channels'])} channels", fg="#23a55a")
-        app.btn_stop.config(state="normal")
-    root.mainloop()
+    launch_gui()
+
+if __name__ == "__main__":
+    main()
