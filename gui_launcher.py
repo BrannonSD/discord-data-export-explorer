@@ -63,8 +63,10 @@ def recover_deleted_user_ids(target_dir, deleted_dm_channel_ids, my_user_id):
         file_path = os.path.join(reporting_dir, file)
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines_scanned = 0
                 for line in f:
-                    if not target_set:
+                    lines_scanned += 1
+                    if lines_scanned > 200000 or not target_set:
                         break
                     for channel_id in list(target_set):
                         if channel_id in line:
@@ -474,14 +476,14 @@ class LauncherApp:
         frame_btns = tk.Frame(root, bg=bg_main)
         frame_btns.pack(fill="x", padx=24, pady=20)
 
-        self.btn_start = tk.Button(frame_btns, text="🚀 Load Package & Open Browser", command=self.load_and_open, font=("Segoe UI", 10, "bold"), bg=accent_blurple, fg="#ffffff", activebackground=accent_hover, borderwidth=0, cursor="hand2", relief="flat")
+        self.btn_start = tk.Button(frame_btns, text="🚀 Start Server & Open Browser", command=self.on_start_click, font=("Segoe UI", 10, "bold"), bg=accent_blurple, fg="#ffffff", activebackground=accent_hover, borderwidth=0, cursor="hand2", relief="flat")
         self.btn_start.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 6))
 
-        self.btn_browser = tk.Button(frame_btns, text="🌐 Open Browser UI", command=self.open_browser, font=("Segoe UI", 10, "bold"), bg="#35373c", fg="#ffffff", activebackground="#404249", borderwidth=0, cursor="hand2", relief="flat")
-        self.btn_browser.pack(side="right", fill="x", expand=True, ipady=8, padx=(6, 0))
+        self.btn_stop = tk.Button(frame_btns, text="🛑 Stop Server", command=self.stop_server, font=("Segoe UI", 10, "bold"), bg=btn_red, fg="#ffffff", activebackground="#a1282b", borderwidth=0, state="disabled", cursor="hand2", relief="flat")
+        self.btn_stop.pack(side="right", fill="x", expand=True, ipady=8, padx=(6, 0))
 
         # Status Footer
-        self.lbl_status = tk.Label(root, text="Status: Server running on http://localhost:3000", font=("Segoe UI", 10, "italic"), bg=bg_main, fg="#23a55a")
+        self.lbl_status = tk.Label(root, text="Status: Ready. Please select a folder and click Start Server.", font=("Segoe UI", 10, "italic"), bg=bg_main, fg=fg_muted)
         self.lbl_status.pack(anchor="w", padx=24, pady=(0, 15))
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -491,21 +493,37 @@ class LauncherApp:
         if folder:
             self.package_path.set(folder)
 
-    def load_and_open(self):
+    def on_start_click(self):
         folder = self.package_path.get().strip()
         if not folder or not os.path.exists(folder):
             messagebox.showwarning("Select Folder", "Please select a valid Discord Data Package folder.")
             return
 
-        success = index_package_data(folder)
-        if success:
-            self.lbl_status.config(text=f"Status: Loaded {len(DATA_CACHE['channels'])} channels from folder", fg="#23a55a")
-            self.open_browser()
-        else:
-            messagebox.showerror("Error Loading Data", DATA_CACHE["indexing_error"] or "Failed to parse Discord package folder.")
+        self.btn_start.config(state="disabled")
+        self.lbl_status.config(text="Status: Indexing package & recovering Deleted User IDs...", fg="#e3b341")
 
-    def open_browser(self):
-        webbrowser.open(f"http://localhost:{PORT}")
+        def background_index():
+            success = index_package_data(folder)
+            def update_ui():
+                if success:
+                    self.lbl_status.config(text=f"Status: Server running on http://localhost:{PORT} ({len(DATA_CACHE['channels'])} chats indexed)", fg="#23a55a")
+                    self.btn_stop.config(state="normal")
+                    webbrowser.open(f"http://localhost:{PORT}")
+                else:
+                    self.lbl_status.config(text="Status: Failed to index package.", fg="#da373c")
+                    self.btn_start.config(state="normal")
+                    messagebox.showerror("Error Loading Data", DATA_CACHE["indexing_error"] or "Failed to parse Discord package folder.")
+            self.root.after(0, update_ui)
+
+        threading.Thread(target=background_index, daemon=True).start()
+
+    def stop_server(self):
+        DATA_CACHE["is_indexed"] = False
+        DATA_CACHE["channels"].clear()
+        DATA_CACHE["messages"].clear()
+        self.btn_start.config(state="normal")
+        self.btn_stop.config(state="disabled")
+        self.lbl_status.config(text="Status: Server stopped. Package unloaded.", fg="#949ba4")
 
     def on_close(self):
         if SERVER_INSTANCE:
@@ -527,4 +545,5 @@ if __name__ == "__main__":
     if PACKAGE_DIR:
         app.package_path.set(PACKAGE_DIR)
         app.lbl_status.config(text=f"Status: Loaded {len(DATA_CACHE['channels'])} channels", fg="#23a55a")
+        app.btn_stop.config(state="normal")
     root.mainloop()
