@@ -1,7 +1,8 @@
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
+const readline = require('readline');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -10,95 +11,134 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Parse command line arguments for package path
-let PACKAGE_DIR = process.env.DISCORD_PACKAGE_PATH || '';
-
-for (let i = 2; i < process.argv.length; i++) {
-  if (process.argv[i] === '--package' || process.argv[i] === '-p') {
-    PACKAGE_DIR = process.argv[i + 1] || '';
-    break;
-  } else if (!process.argv[i].startsWith('-') && i === 2) {
-    PACKAGE_DIR = process.argv[i];
-  }
-}
-
-// Fallback to current working directory if it contains export files
-if (!PACKAGE_DIR || !fs.existsSync(PACKAGE_DIR)) {
-  if (fs.existsSync(path.join(process.cwd(), 'Messages'))) {
-    PACKAGE_DIR = process.cwd();
-  }
+// Parse Command Line Arguments for --package
+let packageDir = '';
+const packageArgIdx = process.argv.indexOf('--package');
+if (packageArgIdx !== -1 && process.argv[packageArgIdx + 1]) {
+  packageDir = path.resolve(process.argv[packageArgIdx + 1]);
 }
 
 let dataCache = {
   account: null,
   channels: [],
   servers: {},
-  messagesCache: new Map(), // channelId -> messages array
+  messages: {}, // channelId -> array of messages
   isIndexed: false,
-  indexingError: null,
-  packageDir: PACKAGE_DIR
+  indexingError: null
 };
 
-// Helper to safely read JSON
-function readJson(filePath) {
+// Helper: Safely read JSON
+function readJsonFile(filePath) {
   try {
     if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, 'utf8');
-      return JSON.parse(raw);
+      const content = fs.readFileSync(filePath, 'utf8');
+      return JSON.parse(content);
     }
   } catch (err) {
-    console.error(`[Error] Failed reading JSON from ${filePath}:`, err.message);
+    console.error(`[Error] Failed to read JSON at ${filePath}:`, err.message);
   }
   return null;
 }
 
-// Index Discord Export Package Data
-function indexPackageData() {
-  if (!PACKAGE_DIR || !fs.existsSync(PACKAGE_DIR)) {
-    console.log(`[Info] No valid Discord export directory selected yet.`);
-    dataCache.isIndexed = false;
-    dataCache.channels = [];
-    dataCache.account = null;
-    return;
+// Recover Deleted User IDs from Activity telemetry logs
+async function recoverDeletedUserIds(targetDir, deletedDmChannelIds, myUserId) {
+  const recoveredMap = new Map(); // channelId -> recipientUserId
+  const reportingDir = path.join(targetDir, 'Activity', 'reporting');
+  
+  if (!fs.existsSync(reportingDir) || deletedDmChannelIds.length === 0) {
+    return recoveredMap;
   }
 
-  console.log(`[Indexing] Loading Discord Data Package from: ${PACKAGE_DIR}...`);
+  const files = fs.readdirSync(reportingDir).filter(f => f.endsWith('.json'));
+  if (files.length === 0) return recoveredMap;
+
+  const targetSet = new Set(deletedDmChannelIds);
+
+  for (const file of files) {
+    if (targetSet.size === 0) break;
+    const filePath = path.join(reportingDir, file);
+    try {
+      const fileStream = fs.createReadStream(filePath);
+      const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+
+      for await (const line of rl) {
+        if (targetSet.size === 0) break;
+        for (const channelId of targetSet) {
+          if (line.includes(channelId)) {
+            try {
+              const obj = JSON.parse(line);
+              const rIds = obj._governance_meta?.reporting?.recipient_ids || [];
+              const otherId = rIds.find(id => String(id) !== String(myUserId));
+              if (otherId && otherId !== 'Deleted User') {
+                recoveredMap.set(channelId, String(otherId));
+                targetSet.delete(channelId);
+                break;
+              }
+            } catch (e) {}
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`[Recovery Error] ${file}:`, e.message);
+    }
+  }
+
+  return recoveredMap;
+}
+
+// Indexing Engine
+async function indexPackage(targetDir) {
+  packageDir = path.resolve(targetDir);
+  console.log(`[Indexing] Loading Discord Data Package from: ${packageDir}...`);
+
+  if (!fs.existsSync(packageDir)) {
+    dataCache.isIndexed = false;
+    dataCache.indexingError = `Specified package directory does not exist: ${packageDir}`;
+    return false;
+  }
+
   try {
-    // 1. Account Info
-    const userJsonPath = path.join(PACKAGE_DIR, 'Account', 'user.json');
-    dataCache.account = readJson(userJsonPath) || {};
+    // 1. Load Account Info
+    const userPath = path.join(packageDir, 'Account', 'user.json');
+    dataCache.account = readJsonFile(userPath);
 
-    // 2. Servers Index
-    const serversIndexPath = path.join(PACKAGE_DIR, 'Servers', 'index.json');
-    dataCache.servers = readJson(serversIndexPath) || {};
+    // 2. Load Servers Index
+    const serversPath = path.join(packageDir, 'Servers', 'index.json');
+    dataCache.servers = readJsonFile(serversPath) || {};
 
-    // 3. Messages Index
-    const messagesIndexPath = path.join(PACKAGE_DIR, 'Messages', 'index.json');
-    const messagesIndex = readJson(messagesIndexPath) || {};
+    // 3. Load Messages Index
+    const indexMsgPath = path.join(packageDir, 'Messages', 'index.json');
+    const messagesIndex = readJsonFile(indexMsgPath) || {};
 
-    // 4. Scan Messages Folder
-    const messagesDir = path.join(PACKAGE_DIR, 'Messages');
+    // 4. Read All Message Channel Folders
+    const messagesDir = path.join(packageDir, 'Messages');
     const channels = [];
-    dataCache.messagesCache.clear();
+    dataCache.messages = {};
+
+    const deletedDmChannelIds = [];
 
     if (fs.existsSync(messagesDir)) {
-      const entries = fs.readdirSync(messagesDir, { withFileTypes: true });
+      const entries = fs.readdirSync(messagesDir);
 
       for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const folderPath = path.join(messagesDir, entry.name);
+        const folderPath = path.join(messagesDir, entry);
+        if (fs.statSync(folderPath).isDirectory()) {
           const channelJsonPath = path.join(folderPath, 'channel.json');
           const messagesJsonPath = path.join(folderPath, 'messages.json');
 
-          const channelInfo = readJson(channelJsonPath);
-          const messages = readJson(messagesJsonPath) || [];
+          const channelInfo = readJsonFile(channelJsonPath);
+          const messages = readJsonFile(messagesJsonPath) || [];
 
           if (channelInfo || messages.length > 0) {
-            const channelId = channelInfo?.id || entry.name.replace(/^c/, '');
+            const channelId = channelInfo?.id || entry.replace(/^c/, '');
             const indexedDesc = messagesIndex[channelId] || '';
-            
+
             let type = channelInfo?.type || 'UNKNOWN';
-            let name = channelInfo?.name || indexedDesc || `Channel ${channelId}`;
+            let name = channelInfo?.name || '';
+            if (!name) {
+              name = indexedDesc || `Channel ${channelId}`;
+            }
+
             let guildName = channelInfo?.guild?.name || '';
             let guildId = channelInfo?.guild?.id || '';
 
@@ -109,6 +149,7 @@ function indexPackageData() {
             let recipients = channelInfo?.recipients || [];
             let recipientId = null;
             let recipientHandle = '';
+            let isDeletedUser = false;
 
             const myUserId = dataCache.account?.id || '';
 
@@ -124,59 +165,81 @@ function indexPackageData() {
                   name = `@${recipientHandle}`;
                 }
               }
+
+              if (recipientId === 'Deleted User' || !recipientId || recipientHandle.includes('Unknown Participant')) {
+                isDeletedUser = true;
+                deletedDmChannelIds.push(String(channelId));
+              }
             } else if (type === 'GROUP_DM' || indexedDesc.startsWith('Group DM')) {
               type = 'GROUP_DM';
             }
 
+            // Sort messages chronologically
             messages.sort((a, b) => new Date(a.Timestamp) - new Date(b.Timestamp));
-            dataCache.messagesCache.set(channelId, messages);
+            dataCache.messages[channelId] = messages;
+
+            const firstMsg = messages[0];
+            const lastMsg = messages[messages.length - 1];
 
             channels.push({
-              id: channelId,
-              folderName: entry.name,
+              id: String(channelId),
+              folderName: entry,
               type,
               name,
-              guildId,
+              guildId: String(guildId),
               guildName,
               recipients,
-              recipientId,
+              recipientId: recipientId ? String(recipientId) : null,
               recipientHandle,
+              isDeletedUser,
+              isRecovered: false,
               indexedDesc,
               messageCount: messages.length,
-              firstMessageTimestamp: messages[0]?.Timestamp || null,
-              lastMessageTimestamp: messages[messages.length - 1]?.Timestamp || null
+              firstMessageTimestamp: firstMsg?.Timestamp || null,
+              lastMessageTimestamp: lastMsg?.Timestamp || null
             });
           }
         }
       }
     }
 
-    channels.sort((a, b) => {
-      const timeA = a.lastMessageTimestamp ? new Date(a.lastMessageTimestamp).getTime() : 0;
-      const timeB = b.lastMessageTimestamp ? new Date(b.lastMessageTimestamp).getTime() : 0;
-      return timeB - timeA;
-    });
+    // 5. Run Telemetry Activity Log Recovery for Deleted Users
+    if (deletedDmChannelIds.length > 0) {
+      console.log(`[Recovery Engine] Scanning activity logs for ${deletedDmChannelIds.length} Deleted User DMs...`);
+      const recoveredMap = await recoverDeletedUserIds(packageDir, deletedDmChannelIds, dataCache.account?.id || '');
+      
+      for (const ch of channels) {
+        if (ch.isDeletedUser && recoveredMap.has(ch.id)) {
+          ch.recipientId = recoveredMap.get(ch.id);
+          ch.isRecovered = true;
+          console.log(`[Recovered User ID] DM ${ch.id} -> ${ch.recipientId}`);
+        }
+      }
+    }
+
+    // Sort channels by last active message
+    channels.sort((a, b) => new Date(b.lastMessageTimestamp || 0) - new Date(a.lastMessageTimestamp || 0));
 
     dataCache.channels = channels;
     dataCache.isIndexed = true;
     dataCache.indexingError = null;
-    dataCache.packageDir = PACKAGE_DIR;
+
     console.log(`[Success] Indexed ${channels.length} channels and DMs.`);
+    return true;
+
   } catch (err) {
-    console.error('[Error] Indexing error:', err);
-    dataCache.indexingError = err.message;
+    console.error('[Error] Package indexing failed:', err);
     dataCache.isIndexed = false;
+    dataCache.indexingError = err.message;
+    return false;
   }
 }
-
-// Initial index attempt
-indexPackageData();
 
 // API Routes
 app.get('/api/status', (req, res) => {
   res.json({
     isIndexed: dataCache.isIndexed,
-    packageDir: PACKAGE_DIR,
+    packageDir,
     error: dataCache.indexingError,
     totalChannels: dataCache.channels.length
   });
@@ -184,19 +247,15 @@ app.get('/api/status', (req, res) => {
 
 app.get('/api/account', (req, res) => {
   res.json({
-    id: dataCache.account?.id || '',
-    username: dataCache.account?.username || 'User',
-    global_name: dataCache.account?.global_name || dataCache.account?.username || 'Discord User',
-    email: dataCache.account?.email || '',
-    avatar_hash: dataCache.account?.avatar_hash || '',
-    packageDir: PACKAGE_DIR
+    ...dataCache.account,
+    packageDir
   });
 });
 
 app.get('/api/channels', (req, res) => {
   res.json({
     total: dataCache.channels.length,
-    packageDir: PACKAGE_DIR,
+    packageDir,
     isIndexed: dataCache.isIndexed,
     channels: dataCache.channels
   });
@@ -204,29 +263,23 @@ app.get('/api/channels', (req, res) => {
 
 app.get('/api/channel/:id/messages', (req, res) => {
   const channelId = req.params.id;
-  const messages = dataCache.messagesCache.get(channelId);
-
-  if (!messages) {
-    return res.status(404).json({ error: 'Channel not found or has no messages.' });
-  }
-
-  let filtered = messages;
-  const searchQuery = req.query.search ? req.query.search.toLowerCase() : '';
-
-  if (searchQuery) {
-    filtered = messages.filter(m => (m.Contents || '').toLowerCase().includes(searchQuery));
-  }
-
-  const offset = parseInt(req.query.offset) || 0;
   const limit = parseInt(req.query.limit) || 100;
-  const paginated = filtered.slice(offset, offset + limit);
+  const offset = parseInt(req.query.offset) || 0;
+  const search = req.query.search ? req.query.search.toLowerCase() : null;
 
+  let messages = dataCache.messages[channelId] || [];
+
+  if (search) {
+    messages = messages.filter(m => (m.Contents || '').toLowerCase().includes(search));
+  }
+
+  const paginated = messages.slice(offset, offset + limit);
   const channelMeta = dataCache.channels.find(c => String(c.id) === String(channelId));
 
   res.json({
     channelId,
     channelMeta,
-    totalMessages: filtered.length,
+    totalMessages: messages.length,
     offset,
     limit,
     messages: paginated
@@ -234,18 +287,18 @@ app.get('/api/channel/:id/messages', (req, res) => {
 });
 
 app.get('/api/search', (req, res) => {
-  const query = (req.query.q || '').trim().toLowerCase();
+  const query = req.query.q ? req.query.q.trim().toLowerCase() : '';
+  const limit = parseInt(req.query.limit) || 100;
+
   if (!query) {
     return res.json({ results: [], total: 0 });
   }
 
   const results = [];
-  const limit = parseInt(req.query.limit) || 100;
 
-  for (const [channelId, messages] of dataCache.messagesCache.entries()) {
+  for (const [channelId, msgs] of Object.entries(dataCache.messages)) {
     const channelMeta = dataCache.channels.find(c => String(c.id) === String(channelId));
-    
-    for (const msg of messages) {
+    for (const msg of msgs) {
       if ((msg.Contents || '').toLowerCase().includes(query)) {
         results.push({
           channelId,
@@ -273,7 +326,6 @@ app.get('/api/stats', (req, res) => {
   let totalMessages = 0;
   let dmCount = 0;
   let guildChannelCount = 0;
-
   const topDms = [];
   const topGuildsMap = {};
 
@@ -291,7 +343,6 @@ app.get('/api/stats', (req, res) => {
   }
 
   topDms.sort((a, b) => b.messageCount - a.messageCount);
-
   const topGuilds = Object.entries(topGuildsMap)
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count);
@@ -301,46 +352,39 @@ app.get('/api/stats', (req, res) => {
     totalChannels: dataCache.channels.length,
     dmCount,
     guildChannelCount,
-    topDms: topDms.slice(0, 10).map(d => ({
-      id: d.id,
-      name: d.name,
-      recipientId: d.recipientId,
-      recipientHandle: d.recipientHandle,
-      messageCount: d.messageCount
-    })),
+    topDms: topDms.slice(0, 10),
     topGuilds: topGuilds.slice(0, 10)
   });
 });
 
-app.post('/api/set-package-path', (req, res) => {
-  let { newPath } = req.body;
+app.post('/api/set-package-path', async (req, res) => {
+  const { newPath } = req.body;
   if (!newPath || !fs.existsSync(newPath)) {
-    return res.status(400).json({ error: 'Invalid or non-existent folder path provided.' });
+    return res.status(400).json({ error: 'Invalid or non-existent path.' });
   }
 
-  PACKAGE_DIR = path.resolve(newPath);
-  indexPackageData();
-
-  if (dataCache.indexingError) {
-    return res.status(500).json({ error: dataCache.indexingError });
+  const success = await indexPackage(newPath);
+  if (success) {
+    res.json({
+      success: true,
+      message: `Loaded Discord package from ${packageDir}`,
+      totalChannels: dataCache.channels.length,
+      packageDir
+    });
+  } else {
+    res.status(500).json({ error: dataCache.indexingError || 'Failed to index package.' });
   }
-
-  res.json({
-    success: true,
-    message: `Loaded Discord package from ${PACKAGE_DIR}`,
-    totalChannels: dataCache.channels.length,
-    packageDir: PACKAGE_DIR
-  });
 });
+
+// Auto-start if --package argument was supplied
+if (packageDir) {
+  indexPackage(packageDir);
+}
 
 app.listen(PORT, () => {
   console.log(`\n==================================================`);
   console.log(`🚀 Discord Data Export Explorer Running!`);
   console.log(`👉 Access Web UI: http://localhost:${PORT}`);
-  if (PACKAGE_DIR) {
-    console.log(`📂 Package Directory: ${PACKAGE_DIR}`);
-  } else {
-    console.log(`📂 Package Directory: [Not selected yet - use GUI launcher or web UI]`);
-  }
+  if (packageDir) console.log(`📂 Package Directory: ${packageDir}`);
   console.log(`==================================================\n`);
 });

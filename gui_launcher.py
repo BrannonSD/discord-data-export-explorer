@@ -44,6 +44,45 @@ def read_json_file(filepath):
         print(f"[Error] Reading {filepath}: {e}")
     return None
 
+def recover_deleted_user_ids(target_dir, deleted_dm_channel_ids, my_user_id):
+    recovered_map = {} # channelId -> recipientUserId
+    reporting_dir = os.path.join(target_dir, "Activity", "reporting")
+
+    if not os.path.exists(reporting_dir) or not deleted_dm_channel_ids:
+        return recovered_map
+
+    files = [f for f in os.listdir(reporting_dir) if f.endswith(".json")]
+    if not files:
+        return recovered_map
+
+    target_set = set(deleted_dm_channel_ids)
+
+    for file in files:
+        if not target_set:
+            break
+        file_path = os.path.join(reporting_dir, file)
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    if not target_set:
+                        break
+                    for channel_id in list(target_set):
+                        if channel_id in line:
+                            try:
+                                obj = json.loads(line)
+                                r_ids = obj.get("_governance_meta", {}).get("reporting", {}).get("recipient_ids", [])
+                                other_id = next((str(r) for r in r_ids if str(r) != str(my_user_id) and str(r) != "Deleted User"), None)
+                                if other_id:
+                                    recovered_map[channel_id] = other_id
+                                    target_set.remove(channel_id)
+                                    break
+                            except Exception:
+                                pass
+        except Exception as e:
+            print(f"[Recovery Error] {file}: {e}")
+
+    return recovered_map
+
 def index_package_data(target_dir):
     global PACKAGE_DIR, DATA_CACHE
     PACKAGE_DIR = os.path.abspath(target_dir)
@@ -71,6 +110,7 @@ def index_package_data(target_dir):
         messages_dir = os.path.join(PACKAGE_DIR, "Messages")
         channels = []
         DATA_CACHE["messages"].clear()
+        deleted_dm_channel_ids = []
 
         if os.path.exists(messages_dir):
             for entry in os.listdir(messages_dir):
@@ -101,6 +141,7 @@ def index_package_data(target_dir):
                         recipients = channel_info.get("recipients", []) if channel_info else []
                         recipient_id = None
                         recipient_handle = ""
+                        is_deleted_user = False
 
                         my_user_id = str(DATA_CACHE["account"].get("id", ""))
 
@@ -119,6 +160,11 @@ def index_package_data(target_dir):
                                 recipient_handle = match.group(1)
                                 if not ch_name or ch_name == f"Channel {channel_id}":
                                     ch_name = f"@{recipient_handle}"
+
+                            if recipient_id == "Deleted User" or not recipient_id or "Unknown Participant" in recipient_handle:
+                                is_deleted_user = True
+                                deleted_dm_channel_ids.append(channel_id)
+
                         elif ch_type == "GROUP_DM" or indexed_desc.startswith("Group DM"):
                             ch_type = "GROUP_DM"
 
@@ -139,11 +185,24 @@ def index_package_data(target_dir):
                             "recipients": recipients,
                             "recipientId": recipient_id,
                             "recipientHandle": recipient_handle,
+                            "isDeletedUser": is_deleted_user,
+                            "isRecovered": False,
                             "indexedDesc": indexed_desc,
                             "messageCount": len(messages),
                             "firstMessageTimestamp": first_ts,
                             "lastMessageTimestamp": last_ts
                         })
+
+        # 5. Run Telemetry Activity Log Recovery for Deleted Users
+        if deleted_dm_channel_ids:
+            print(f"[Recovery Engine] Scanning activity logs for {len(deleted_dm_channel_ids)} Deleted User DMs...")
+            recovered_map = recover_deleted_user_ids(PACKAGE_DIR, deleted_dm_channel_ids, DATA_CACHE["account"].get("id", ""))
+
+            for ch in channels:
+                if ch["isDeletedUser"] and ch["id"] in recovered_map:
+                    ch["recipientId"] = recovered_map[ch["id"]]
+                    ch["isRecovered"] = True
+                    print(f"[Recovered User ID] DM {ch['id']} -> {ch['recipientId']}")
 
         channels.sort(key=lambda c: c["lastMessageTimestamp"] or "", reverse=True)
         DATA_CACHE["channels"] = channels
@@ -161,7 +220,7 @@ def index_package_data(target_dir):
 
 class DiscordRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
-        pass # Suppress HTTP log spam
+        pass
 
     def send_json(self, data, code=200):
         body = json.dumps(data).encode('utf-8')
@@ -455,11 +514,9 @@ class LauncherApp:
 
 
 if __name__ == "__main__":
-    # Start embedded HTTP server in background thread
     SERVER_THREAD = threading.Thread(target=start_http_server, daemon=True)
     SERVER_THREAD.start()
 
-    # Parse CLI argument if passed
     for i, arg in enumerate(sys.argv):
         if arg == "--package" and i + 1 < len(sys.argv):
             index_package_data(sys.argv[i + 1])
