@@ -1,0 +1,29 @@
+{
+  "name": "discord-data-export-explorer",
+  "version": "1.0.0",
+  "description": "Explore, search, and navigate your Discord Data Package export history with direct native profile links.",
+  "author": "BrannonSD (https://github.com/BrannonSD)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BrannonSD/discord-data-export-explorer.git"
+  },
+  "keywords": [
+    "discord",
+    "discord-data-export",
+    "discord-messages",
+    "discord-history",
+    "discord-viewer",
+    "discord-exporter",
+    "user-id-exporter"
+  ],
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  }
+}

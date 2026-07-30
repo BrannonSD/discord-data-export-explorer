@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Discord Data Export Explorer</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=gg+sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app" class="discord-theme">
+    <!-- Top Nav -->
+    <header class="top-nav">
+      <div class="brand">
+        <svg class="discord-icon" viewBox="0 0 127.14 96.36">
+          <path fill="currentColor" d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a73.57,73.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1,105.25,105.25,0,0,0,32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,45.92,53.86,53,48.83,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,45.92,96.09,53,91.07,65.69,84.69,65.69Z"/>
+        </svg>
+        <span class="app-title">Discord Data Export Explorer</span>
+      </div>
+
+      <div class="nav-center">
+        <div class="search-input-wrapper">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="global-search-input" placeholder="Search across all messages... (Press Enter)" />
+        </div>
+      </div>
+
+      <div class="nav-right">
+        <button id="btn-change-folder" class="btn btn-secondary" title="Change loaded Discord Export Folder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+          <span id="folder-btn-text">Folder</span>
+        </button>
+
+        <button id="btn-stats" class="btn btn-secondary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="20" x2="18" y2="10"></line>
+            <line x1="12" y1="20" x2="12" y2="4"></line>
+            <line x1="6" y1="20" x2="6" y2="14"></line>
+          </svg>
+          <span>Analytics</span>
+        </button>
+
+        <div class="user-profile-pill" id="user-profile-pill">
+          <div class="user-avatar-small" id="user-avatar">?</div>
+          <span class="user-name" id="user-name">Loading...</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- App Body -->
+    <div class="app-body">
+      <!-- Left Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div class="filter-input-wrapper">
+            <input type="text" id="channel-filter-input" placeholder="Filter chats & servers..." />
+          </div>
+          <div class="category-tabs">
+            <button class="tab-btn active" data-tab="all">All</button>
+            <button class="tab-btn" data-tab="dm">DMs</button>
+            <button class="tab-btn" data-tab="server">Servers</button>
+          </div>
+        </div>
+
+        <div class="channel-list" id="channel-list">
+          <div class="loading-state">Loading export package...</div>
+        </div>
+      </aside>
+
+      <!-- Main Chat Area -->
+      <main class="chat-area">
+        <!-- Chat Header -->
+        <header class="chat-header" id="chat-header">
+          <div class="chat-header-left">
+            <span class="chat-icon-badge" id="chat-icon">💬</span>
+            <div class="chat-title-group">
+              <h2 id="chat-title">Select a conversation</h2>
+              <span id="chat-subtitle" class="chat-subtitle">Choose a DM or Server channel from the sidebar</span>
+            </div>
+          </div>
+
+          <!-- Direct User / Channel Action Toolbar -->
+          <div class="user-export-toolbar" id="user-export-toolbar" style="display: none;">
+            <div class="user-id-badge" id="badge-id-container" title="Discord ID">
+              <span class="label" id="badge-id-label">User ID:</span>
+              <code id="export-user-id-text">000000000000000000</code>
+            </div>
+
+            <!-- Direct Launch DM / Channel Button -->
+            <button id="btn-launch-chat" class="btn btn-primary btn-launch" title="Open this exact chat conversation natively in Discord!">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+              <span>Open Chat in Discord</span>
+            </button>
+
+            <!-- Direct Launch Profile Button (For DMs) -->
+            <button id="btn-launch-profile" class="btn btn-secondary" title="Open recipient profile modal inside Discord">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                <circle cx="12" cy="7" r="4"></circle>
+              </svg>
+              <span>Open Profile</span>
+            </button>
+
+            <!-- Copy Tag Button -->
+            <button id="btn-copy-tag" class="btn btn-secondary" title="Copy <@user_id> mention tag (works with Vencord / native mention repair)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span>Copy &lt;@User ID&gt;</span>
+            </button>
+
+            <!-- Copy Raw ID Button -->
+            <button id="btn-copy-raw-id" class="btn btn-secondary" title="Copy raw numeric ID">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+              </svg>
+              <span>Copy Raw ID</span>
+            </button>
+          </div>
+
+          <div class="chat-search-wrapper">
+            <input type="text" id="chat-search-input" placeholder="Search in this chat..." />
+          </div>
+        </header>
+
+        <!-- Message Feed -->
+        <div class="message-feed" id="message-feed">
+          <div class="empty-state">
+            <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <h3>Select a Conversation</h3>
+            <p>Choose any Direct Message or Server Channel on the left to start reading history.</p>
+          </div>
+        </div>
+
+        <!-- Pagination Bar -->
+        <div class="feed-footer" id="feed-footer" style="display: none;">
+          <button id="btn-load-more" class="btn btn-primary">Load Previous Messages</button>
+          <span id="feed-status-text" class="feed-status-text">Showing messages</span>
+        </div>
+      </main>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">Copied to clipboard!</div>
+
+    <!-- Folder Selector Modal -->
+    <div id="modal-folder" class="modal-backdrop" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>📂 Select Discord Export Package Folder</h3>
+          <button class="modal-close" id="modal-folder-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin-bottom: 12px; color: var(--text-muted); font-size: 0.9rem;">
+            Enter or paste the absolute path to your unzipped Discord Data Package folder (containing <code>Account</code>, <code>Messages</code>, <code>Servers</code>):
+          </p>
+          <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+            <input type="text" id="package-path-input" style="flex: 1; padding: 10px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-bold);" placeholder="e.g. C:\Users\Username\Downloads\package" />
+            <button id="btn-submit-package-path" class="btn btn-primary">Load Folder</button>
+          </div>
+          <div id="folder-status-message" style="font-size: 0.85rem; color: var(--brand-light);"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Analytics Modal -->
+    <div id="modal-stats" class="modal-backdrop" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>📊 Message Analytics & Export Overview</h3>
+          <button class="modal-close" id="modal-stats-close">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-stats-body">
+          <div class="loading-state">Calculating stats...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Global Search Results Modal -->
+    <div id="modal-search" class="modal-backdrop" style="display: none;">
+      <div class="modal-card modal-large">
+        <div class="modal-header">
+          <h3>🔍 Global Search Results</h3>
+          <button class="modal-close" id="modal-search-close">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-search-body">
+          <div class="loading-state">Type a query above to search.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
