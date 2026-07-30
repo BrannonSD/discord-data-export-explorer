@@ -9,14 +9,21 @@
 
 ---
 
+## 📸 User Interface Preview
+
+![Discord Data Export Explorer Preview](docs/preview.png)
+
+---
+
 ## 🌟 Features
 
 - **💬 Discord-Inspired Web UI**: Modern, dark glassmorphism interface styled after native Discord (`#1e1f22`, `#2b2d31`, `#5865F2`).
 - **📁 Browse All Chats & Servers**: Categorized sidebar for **Direct Messages (DMs)**, **Group DMs**, and **Server Channels** with instant message count badges.
-- **🚀 Native Discord Direct Profile Launcher**:
-  - One-click button (`Open Profile in Discord`) that launches your installed Discord Desktop app and opens the user's profile card using `discord://-/users/{user_id}` and `https://discord.com/users/{user_id}`.
+- **🚀 Native Discord Direct Chat & Profile Launcher**:
+  - One-click **`Open Chat in Discord`** button (`discord://-/channels/@me/{channel_id}`) to jump directly into the exact DM chat room in native Discord!
+  - **`Open Profile`** button (`discord://-/users/{user_id}`) to view recipient profile modal.
 - **📋 User ID Export Tools**:
-  - Copy `<@user_id>` mention tags (e.g. `<@203630902658465794>`) to paste into any Discord chat and mention/view users natively.
+  - Copy `<@user_id>` mention tags (e.g. `<@879372420706881556>`) to paste into any Discord chat and mention/view users natively (works with Vencord repair).
   - Copy raw numeric User IDs or web profile links with one click.
 - **🔍 Fast Search**: Instant in-conversation search and global message search across your entire history (100,000+ messages indexed in seconds).
 - **📊 Analytics & Statistics**: Visual breakdown of total messages sent, top DM contacts, and most active servers.
@@ -25,31 +32,14 @@
 
 ---
 
-## 📸 Overview
-
-```
-+-----------------------------------------------------------------------------------+
-| 💬 Discord Data Export Explorer                          [ 🔍 Search ]  [ 📊 Analytics ] |
-+-----------------------+-----------------------------------------------------------+
-| [ Filter chats...   ] | 👤 Direct Message with @username                           |
-| (All)  (DMs) (Servers)| User ID: 879372420706881556  [🚀 Open Profile in Discord] |
-| --------------------- | --------------------------------------------------------- |
-| 👤 @UserA     (18,647)| [UserA]: Hey! How's the project going?                    |
-| 👤 @UserB      (8,363)| [You]:   It's finished! Check out the new viewer.          |
-| # general     (17,670)|                                                           |
-+-----------------------+-----------------------------------------------------------+
-```
-
----
-
 ## 🚀 Quick Start Guide
 
 ### Option 1: One-Click GUI Launcher (Windows Executable)
 
-1. Download or clone this repository.
+1. Download **`DiscordDataExportExplorer.exe`** from [Releases](https://github.com/BrannonSD/discord-data-export-explorer/releases).
 2. Run **`DiscordDataExportExplorer.exe`**.
-3. Click **`📁 Browse...`** and select your unzipped Discord Data Package folder (containing `Account`, `Messages`, `Servers`).
-4. Click **`🚀 Start Server & Open Browser`**. The web dashboard will automatically open in your default browser at `http://localhost:3000`.
+3. Click **`📁 Browse Folder...`** and select your unzipped Discord Data Package folder (containing `Account`, `Messages`, `Servers`).
+4. Click **`🚀 Load Package & Open Browser`**. The web dashboard will automatically open in your default browser at `http://localhost:3000`.
 
 ---
 
@@ -106,9 +96,9 @@ Your privacy is paramount. **Discord Data Export Explorer**:
 
 ## 🛠️ Built With
 
-- **Backend**: Node.js, Express, CORS
+- **Backend**: Node.js / Python HTTP Server (Embedded)
 - **Frontend**: Vanilla HTML5, CSS3 (Custom Discord Glassmorphism Design System), JavaScript (ES6+)
-- **Desktop Launcher**: Native C# WinForms (`DiscordDataExportExplorer.exe`), Python Tkinter (`gui_launcher.py`)
+- **Desktop Launcher**: Embedded PyInstaller Single Executable (`DiscordDataExportExplorer.exe`), Python Tkinter (`gui_launcher.py`)
 
 ---
 

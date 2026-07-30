@@ -9,6 +9,7 @@ Servers/
 README.txt
 *.json
 !package.json
+dummy_package/
 
 # Logs & Temporary Files
 *.log
