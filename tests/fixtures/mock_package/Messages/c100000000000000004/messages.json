@@ -1,0 +1,20 @@
+[
+  {
+    "ID": "800000000000000040",
+    "Timestamp": "2023-11-01T08:00:00.000Z",
+    "Contents": "Good morning! Ready for some gaming today?",
+    "Attachments": ""
+  },
+  {
+    "ID": "800000000000000041",
+    "Timestamp": "2023-11-02T19:20:00.000Z",
+    "Contents": "Check out this soundtrack: https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT",
+    "Attachments": ""
+  },
+  {
+    "ID": "800000000000000042",
+    "Timestamp": "2023-11-03T21:45:00.000Z",
+    "Contents": "GGs tonight! See you tomorrow.",
+    "Attachments": ""
+  }
+]

@@ -1,0 +1,50 @@
+[
+  {
+    "ID": "800000000000000001",
+    "Timestamp": "2023-01-15T10:00:00.000Z",
+    "Contents": "Welcome to the server! Check out <#100000000000000002> for archives.",
+    "Attachments": ""
+  },
+  {
+    "ID": "800000000000000002",
+    "Timestamp": "2023-02-20T14:30:00.000Z",
+    "Contents": "Here is some **bold**, *italic*, ~~strikethrough~~, and __underline__ text!",
+    "Attachments": ""
+  },
+  {
+    "ID": "800000000000000003",
+    "Timestamp": "2023-03-10T18:45:00.000Z",
+    "Contents": "Check this out <:pepedance:748920192837482910> and animated <a:partyblob:849201827364519203>!",
+    "Attachments": ""
+  },
+  {
+    "ID": "800000000000000004",
+    "Timestamp": "2023-04-05T09:15:00.000Z",
+    "Contents": "Don't look unless you want spoilers: ||This is a secret spoiler alert!||",
+    "Attachments": ""
+  },
+  {
+    "ID": "800000000000000005",
+    "Timestamp": "2023-05-12T20:00:00.000Z",
+    "Contents": "Event happening at <t:1700000000:F> (<t:1700000000:R>) with <@223344556677889900> and <@&998877665544332211>",
+    "Attachments": ""
+  },
+  {
+    "ID": "800000000000000006",
+    "Timestamp": "2023-06-18T11:22:33.000Z",
+    "Contents": "# Major Announcement\n-# Subtext note here\n> Blockquote line 1\n> Blockquote line 2\n```javascript\nfunction hello() {\n  console.log('Discord Data Export Explorer!');\n}\n```",
+    "Attachments": ""
+  },
+  {
+    "ID": "800000000000000007",
+    "Timestamp": "2023-07-25T16:40:00.000Z",
+    "Contents": "Awesome song to listen to: https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "Attachments": ""
+  },
+  {
+    "ID": "800000000000000008",
+    "Timestamp": "2023-08-30T13:10:00.000Z",
+    "Contents": "Check out these files I uploaded earlier!",
+    "Attachments": "https://cdn.discordapp.com/attachments/100000000000000001/800000000000000008/screenshot.png https://cdn.discordapp.com/attachments/100000000000000001/800000000000000008/clip.mp4 https://cdn.discordapp.com/attachments/100000000000000001/800000000000000008/notes.pdf"
+  }
+]

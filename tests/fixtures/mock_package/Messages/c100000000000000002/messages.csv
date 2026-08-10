@@ -1,0 +1,7 @@
+ID,Timestamp,Contents,Attachments
+800000000000000020,2023-09-01 10:00:00,First message in CSV format,
+800000000000000021,2023-09-02 11:30:00,"Message with, commas, and ""quotes""",
+800000000000000022,2023-09-03 14:15:00,"Multiline message
+line 2 of multiline message
+line 3 with code: `console.log(123)`",
+800000000000000023,2023-09-04 16:20:00,CSV message with attachment,https://cdn.discordapp.com/attachments/100000000000000002/800000000000000023/data.csv

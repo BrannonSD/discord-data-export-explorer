@@ -3,22 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Discord Data Export Explorer v1.2.0</title>
+  <title>Discord Data Export Explorer v1.3.0</title>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=gg+sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=gg+sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div id="app" class="discord-theme">
-    <!-- Top Nav -->
+  <div id="app" class="discord-theme theme-dark density-cozy">
+    <!-- Top Navigation Bar -->
     <header class="top-nav">
       <div class="brand">
         <svg class="discord-icon" viewBox="0 0 127.14 96.36">
           <path fill="currentColor" d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a73.57,73.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1,105.25,105.25,0,0,0,32.19-16.14c2.64-27.38-4.51-51.11-18.9-72.15ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,45.92,53.86,53,48.83,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,45.92,96.09,53,91.07,65.69,84.69,65.69Z"/>
         </svg>
         <span class="app-title">Discord Export Explorer</span>
-        <span class="version-badge">v1.2.0</span>
+        <span class="version-badge">v1.3.0</span>
       </div>
 
       <div class="nav-center">
@@ -27,33 +27,47 @@
             <circle cx="11" cy="11" r="8"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
-          <input type="text" id="global-search-input" placeholder="Search across all messages... (Press Enter)" />
+          <input type="text" id="global-search-input" placeholder="Search everywhere (has:image, from:user)... (Ctrl+K)" />
+          <span class="search-shortcut-badge">Ctrl+K</span>
         </div>
       </div>
 
       <div class="nav-right">
-        <div class="nav-export-note" title="Discord data package exports only contain your sent messages and metadata.">
-          <span class="note-icon">ℹ️</span>
-          <span class="note-text">Exports only contain your sent messages</span>
-        </div>
+        <!-- Starred Messages Button -->
+        <button id="btn-bookmarks" class="btn btn-secondary" title="View Starred / Bookmarked Messages (Ctrl+Shift+B)">
+          <span>⭐</span>
+          <span class="btn-text">Bookmarks</span>
+          <span id="bookmarks-count-badge" class="badge-count" style="display: none;">0</span>
+        </button>
 
+        <!-- Change Folder Button -->
         <button id="btn-change-folder" class="btn btn-secondary" title="Change loaded Discord Export Folder">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
           </svg>
-          <span id="folder-btn-text">Folder</span>
+          <span id="folder-btn-text" class="btn-text">Folder</span>
         </button>
 
-        <button id="btn-stats" class="btn btn-secondary">
+        <!-- Analytics Studio Button -->
+        <button id="btn-stats" class="btn btn-secondary" title="Interactive Analytics & Statistics (Ctrl+Shift+S)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="20" x2="18" y2="10"></line>
             <line x1="12" y1="20" x2="12" y2="4"></line>
             <line x1="6" y1="20" x2="6" y2="14"></line>
           </svg>
-          <span>Analytics</span>
+          <span class="btn-text">Analytics</span>
         </button>
 
-        <div class="user-profile-pill" id="user-profile-pill">
+        <!-- Settings Button -->
+        <button id="btn-settings" class="btn btn-secondary btn-icon-only" title="Preferences & Themes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        </button>
+
+        <!-- User Profile Pill -->
+        <div class="user-profile-pill" id="user-profile-pill" title="Click to view full Discord Profile & Connected Accounts">
           <div class="user-avatar-small" id="user-avatar">?</div>
           <span class="user-name" id="user-name">Loading...</span>
         </div>
@@ -67,6 +81,7 @@
         <div class="sidebar-header">
           <div class="filter-input-wrapper">
             <input type="text" id="channel-filter-input" placeholder="Filter chats & servers..." />
+            <button id="btn-clear-filter" class="btn-clear-input" style="display: none;">&times;</button>
           </div>
           <div class="category-tabs">
             <button class="tab-btn active" data-tab="all">All</button>
@@ -99,13 +114,36 @@
               <code id="export-user-id-text">000000000000000000</code>
             </div>
 
-            <!-- In-Header Chat Search Box -->
-            <div class="header-search-wrapper" title="Search inside this chat conversation">
-              <svg class="search-icon-small" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-              <input type="text" id="chat-search-input" placeholder="Search chat..." />
+            <!-- In-Header Chat Search Box with Jump Controls -->
+            <div class="header-search-container" title="Search inside this chat conversation">
+              <div class="header-search-wrapper">
+                <svg class="search-icon-small" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="chat-search-input" placeholder="Search chat..." />
+                <button id="btn-clear-chat-search" class="search-clear-btn" style="display: none;">&times;</button>
+              </div>
+              <div class="search-match-controls" id="search-match-controls" style="display: none;">
+                <span id="search-match-counter" class="match-counter">0/0</span>
+                <button id="btn-search-prev" class="btn-icon-mini" title="Previous match">▲</button>
+                <button id="btn-search-next" class="btn-icon-mini" title="Next match">▼</button>
+              </div>
+            </div>
+
+            <!-- Jump to Date Picker -->
+            <div class="date-jump-wrapper" title="Jump directly to a date in this conversation">
+              <button id="btn-jump-date-toggle" class="btn btn-secondary btn-icon-only">
+                📅
+              </button>
+              <div id="date-jump-popover" class="date-jump-popover" style="display: none;">
+                <label for="date-jump-input">Jump to Date:</label>
+                <input type="date" id="date-jump-input" />
+                <div class="date-jump-actions">
+                  <button id="btn-jump-oldest" class="btn btn-secondary btn-sm">Oldest</button>
+                  <button id="btn-jump-newest" class="btn btn-secondary btn-sm">Newest</button>
+                </div>
+              </div>
             </div>
 
             <!-- Chat Sort Direction Toggle Button -->
@@ -114,12 +152,27 @@
               <span id="sort-order-label">Oldest Top</span>
             </button>
 
+            <!-- Export Channel Dropdown -->
+            <div class="export-dropdown-wrapper">
+              <button id="btn-export-menu-toggle" class="btn btn-secondary" title="Export this chat history (HTML, CSV, JSON, TXT)">
+                <span>📥</span>
+                <span>Export</span>
+                <span class="dropdown-arrow">▼</span>
+              </button>
+              <div id="export-dropdown-menu" class="dropdown-menu" style="display: none;">
+                <a href="#" id="export-action-html" class="dropdown-item">📄 Export as Styled HTML</a>
+                <a href="#" id="export-action-csv" class="dropdown-item">📊 Export as CSV</a>
+                <a href="#" id="export-action-json" class="dropdown-item">📦 Export as JSON</a>
+                <a href="#" id="export-action-txt" class="dropdown-item">📝 Export as Plain Text</a>
+              </div>
+            </div>
+
             <!-- Direct Launch DM / Channel Button -->
             <button id="btn-launch-chat" class="btn btn-primary btn-launch" title="Open this chat conversation natively in Discord">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
               </svg>
-              <span>Open Chat in Discord</span>
+              <span>Open in Discord</span>
             </button>
 
             <!-- Direct Launch Profile Button (For DMs) -->
@@ -128,7 +181,7 @@
                 <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                 <circle cx="12" cy="7" r="4"></circle>
               </svg>
-              <span>Open Profile</span>
+              <span>Profile</span>
             </button>
 
             <!-- Copy Tag Button -->
@@ -137,7 +190,7 @@
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
               </svg>
-              <span>Copy &lt;@User ID&gt;</span>
+              <span>Copy Tag</span>
             </button>
 
             <!-- Copy Search Filter Button -->
@@ -146,7 +199,7 @@
                 <circle cx="11" cy="11" r="8"></circle>
                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
               </svg>
-              <span>Copy 'from:ID' Filter</span>
+              <span>Copy Filter</span>
             </button>
 
             <!-- Copy Raw ID Button -->
@@ -179,6 +232,127 @@
     <!-- Toast Notification -->
     <div id="toast" class="toast"></div>
 
+    <!-- Media Lightbox Gallery Modal -->
+    <div id="modal-lightbox" class="lightbox-overlay" style="display: none;">
+      <div class="lightbox-toolbar">
+        <div class="lightbox-info">
+          <span id="lightbox-filename">Attachment</span>
+          <span id="lightbox-counter" class="lightbox-counter">1 of 1</span>
+        </div>
+        <div class="lightbox-actions">
+          <button id="btn-lightbox-zoom-out" class="lightbox-btn" title="Zoom Out (-)">−</button>
+          <button id="btn-lightbox-zoom-reset" class="lightbox-btn" title="Reset Zoom">100%</button>
+          <button id="btn-lightbox-zoom-in" class="lightbox-btn" title="Zoom In (+)">+</button>
+          <button id="btn-lightbox-rotate" class="lightbox-btn" title="Rotate (↺)">↺</button>
+          <button id="btn-lightbox-copy" class="lightbox-btn" title="Copy Link">🔗</button>
+          <a id="btn-lightbox-download" class="lightbox-btn" download target="_blank" title="Download">⬇️</a>
+          <button id="btn-lightbox-close" class="lightbox-btn lightbox-close" title="Close (Esc)">&times;</button>
+        </div>
+      </div>
+      <div class="lightbox-content-container">
+        <button id="btn-lightbox-prev" class="lightbox-nav-btn prev" title="Previous Image (Left Arrow)">❮</button>
+        <div class="lightbox-media-wrapper" id="lightbox-media-wrapper">
+          <!-- Active Image / Video inserted dynamically -->
+        </div>
+        <button id="btn-lightbox-next" class="lightbox-nav-btn next" title="Next Image (Right Arrow)">❯</button>
+      </div>
+    </div>
+
+    <!-- Starred / Bookmarked Messages Modal -->
+    <div id="modal-bookmarks" class="modal-overlay" style="display: none;">
+      <div class="modal-content modal-large">
+        <div class="modal-header">
+          <h3>⭐ Starred & Bookmarked Messages</h3>
+          <button class="modal-close" id="modal-bookmarks-close">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-bookmarks-body">
+          <div class="loading-state">Loading bookmarked messages...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- User Profile & Connections Modal -->
+    <div id="modal-profile" class="modal-overlay" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Discord Profile & Connected Accounts</h3>
+          <button class="modal-close" id="modal-profile-close">&times;</button>
+        </div>
+        <div class="modal-body" id="modal-profile-body">
+          <div class="loading-state">Loading profile...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preferences & Theme Settings Modal -->
+    <div id="modal-settings" class="modal-overlay" style="display: none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Preferences & Appearance</h3>
+          <button class="modal-close" id="modal-settings-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="settings-section">
+            <h4>Theme</h4>
+            <div class="theme-options-grid">
+              <button class="theme-option-btn active" data-theme="theme-dark">
+                <span class="theme-preview dark-preview"></span>
+                <span>Dark (Default)</span>
+              </button>
+              <button class="theme-option-btn" data-theme="theme-midnight">
+                <span class="theme-preview midnight-preview"></span>
+                <span>Midnight (AMOLED)</span>
+              </button>
+              <button class="theme-option-btn" data-theme="theme-light">
+                <span class="theme-preview light-preview"></span>
+                <span>Light</span>
+              </button>
+              <button class="theme-option-btn" data-theme="theme-cyberpunk">
+                <span class="theme-preview cyberpunk-preview"></span>
+                <span>Cyberpunk</span>
+              </button>
+              <button class="theme-option-btn" data-theme="theme-sakura">
+                <span class="theme-preview sakura-preview"></span>
+                <span>Sakura</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h4>Message Display Density</h4>
+            <div class="radio-group">
+              <label class="radio-label">
+                <input type="radio" name="display-density" value="density-cozy" checked />
+                <span><strong>Cozy</strong> (Modern Discord layout with avatars)</span>
+              </label>
+              <label class="radio-label">
+                <input type="radio" name="display-density" value="density-compact" />
+                <span><strong>Compact</strong> (IRC style, fits more messages on screen)</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h4>Font Size</h4>
+            <div class="font-size-slider-wrapper">
+              <input type="range" id="font-size-slider" min="13" max="18" value="15" step="1" />
+              <span id="font-size-label">15px</span>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h4>Keyboard Shortcuts</h4>
+            <div class="shortcuts-list">
+              <div><kbd>Ctrl</kbd> + <kbd>K</kbd> / <kbd>Ctrl</kbd> + <kbd>F</kbd> <span>Global Cross-Chat Search</span></div>
+              <div><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd> <span>Analytics Studio</span></div>
+              <div><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> <span>Starred Messages</span></div>
+              <div><kbd>Esc</kbd> <span>Close Modals / Lightbox / Clear Search</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Folder Selector Modal -->
     <div id="modal-folder" class="modal-overlay" style="display: none;">
       <div class="modal-content">
@@ -197,15 +371,15 @@
       </div>
     </div>
 
-    <!-- Statistics Modal -->
+    <!-- Advanced Interactive Analytics Studio Modal -->
     <div id="modal-stats" class="modal-overlay" style="display: none;">
-      <div class="modal-content modal-large">
+      <div class="modal-content modal-extra-large">
         <div class="modal-header">
-          <h3>Export Analytics & Statistics</h3>
+          <h3>📊 Interactive Analytics & Statistics Studio</h3>
           <button class="modal-close" id="modal-stats-close">&times;</button>
         </div>
         <div class="modal-body" id="modal-stats-body">
-          <div class="loading-state">Calculating statistics...</div>
+          <div class="loading-state">Calculating comprehensive statistics & heatmaps...</div>
         </div>
       </div>
     </div>

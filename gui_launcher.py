@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Discord Data Export Explorer - v1.2.0 Standalone Desktop Application Launcher
+Discord Data Export Explorer - v1.3.0 Standalone Desktop Application Launcher & Server
 """
 import os
 import sys
@@ -8,13 +8,16 @@ import json
 import re
 import threading
 import time
+import csv
+import io
 import urllib.parse
 import webbrowser
+from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 # Global Data Cache
 PACKAGE_DIR = ""
@@ -23,6 +26,8 @@ DATA_CACHE = {
     "channels": [],
     "servers": {},
     "messages": {}, # channelId -> list of msg objects (sorted oldest -> newest)
+    "activity": [],
+    "relationships": [],
     "is_indexed": False,
     "indexing_error": None
 }
@@ -53,6 +58,47 @@ def clean_username(name):
     cleaned = re.sub(r'#(0|0000)$', '', cleaned)
     return cleaned
 
+def parse_discord_csv(filepath):
+    if not os.path.exists(filepath):
+        return []
+    messages = []
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+            reader = csv.reader(f)
+            header = next(reader, None)
+            if not header:
+                return []
+            
+            header_map = {h.strip().lower(): idx for idx, h in enumerate(header)}
+            id_idx = header_map.get('id', header_map.get('messageid', header_map.get('message_id', -1)))
+            time_idx = header_map.get('timestamp', header_map.get('time', header_map.get('date', -1)))
+            contents_idx = header_map.get('contents', header_map.get('content', header_map.get('message', -1)))
+            att_idx = header_map.get('attachments', header_map.get('attachment', -1))
+
+            r_idx = 1
+            for row in reader:
+                if not row or not any(row):
+                    continue
+                r_idx += 1
+                msg_id = row[id_idx].strip() if id_idx != -1 and id_idx < len(row) else str(r_idx)
+                raw_time = row[time_idx].strip() if time_idx != -1 and time_idx < len(row) else ""
+                contents = row[contents_idx] if contents_idx != -1 and contents_idx < len(row) else ""
+                attachments = row[att_idx].strip() if att_idx != -1 and att_idx < len(row) else ""
+
+                formatted_time = raw_time
+                if raw_time and re.match(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}', raw_time):
+                    formatted_time = raw_time.replace(' ', 'T') + 'Z'
+
+                messages.append({
+                    "ID": msg_id,
+                    "Timestamp": formatted_time,
+                    "Contents": contents,
+                    "Attachments": attachments
+                })
+    except Exception as e:
+        print(f"[CSV Parsing Error] {filepath}: {e}")
+    return messages
+
 def recover_deleted_user_ids(target_dir, deleted_dm_channel_ids, my_user_id):
     recovered_map = {}
     target_set = set(deleted_dm_channel_ids)
@@ -61,20 +107,26 @@ def recover_deleted_user_ids(target_dir, deleted_dm_channel_ids, my_user_id):
         return recovered_map
 
     for channel_id in list(target_set):
-        m_path = os.path.join(target_dir, "Messages", f"c{channel_id}", "messages.json")
-        if os.path.exists(m_path):
-            msgs = read_json_file(m_path) or []
-            for m in msgs:
-                text_match = re.search(r'<@!?(\d{17,19})>', m.get("Contents") or "")
-                if text_match and str(text_match.group(1)) != str(my_user_id):
-                    recovered_map[channel_id] = str(text_match.group(1))
-                    target_set.remove(channel_id)
-                    break
-                att_match = re.search(r'/attachments/\d+/(\d{17,19})/', m.get("Attachments") or "")
-                if att_match and str(att_match.group(1)) != str(channel_id):
-                    recovered_map[channel_id] = str(att_match.group(1))
-                    target_set.remove(channel_id)
-                    break
+        folder_path = os.path.join(target_dir, "Messages", f"c{channel_id}")
+        m_json = os.path.join(folder_path, "messages.json")
+        m_csv = os.path.join(folder_path, "messages.csv")
+        msgs = []
+        if os.path.exists(m_json):
+            msgs = read_json_file(m_json) or []
+        elif os.path.exists(m_csv):
+            msgs = parse_discord_csv(m_csv)
+
+        for m in msgs:
+            text_match = re.search(r'<@!?(\d{17,19})>', m.get("Contents") or "")
+            if text_match and str(text_match.group(1)) != str(my_user_id):
+                recovered_map[channel_id] = str(text_match.group(1))
+                target_set.remove(channel_id)
+                break
+            att_match = re.search(r'/attachments/\d+/(\d{17,19})/', m.get("Attachments") or "")
+            if att_match and str(att_match.group(1)) != str(channel_id):
+                recovered_map[channel_id] = str(att_match.group(1))
+                target_set.remove(channel_id)
+                break
 
     if target_set:
         activity_dir = os.path.join(target_dir, "Activity")
@@ -138,12 +190,33 @@ def index_package_data(target_dir):
             acc["username"] = clean_username(acc.get("username"))
             acc["global_name"] = clean_username(acc.get("global_name"))
         DATA_CACHE["account"] = acc
+        DATA_CACHE["relationships"] = acc.get("relationships", [])
+
+        rel_path = os.path.join(PACKAGE_DIR, "Account", "relationships.json")
+        if os.path.exists(rel_path):
+            r_data = read_json_file(rel_path)
+            if isinstance(r_data, list):
+                DATA_CACHE["relationships"] = r_data
 
         servers_path = os.path.join(PACKAGE_DIR, "Servers", "index.json")
         DATA_CACHE["servers"] = read_json_file(servers_path) or {}
 
         msg_index_path = os.path.join(PACKAGE_DIR, "Messages", "index.json")
         msg_index = read_json_file(msg_index_path) or {}
+
+        activity_dir = os.path.join(PACKAGE_DIR, "Activity")
+        DATA_CACHE["activity"] = []
+        if os.path.exists(activity_dir):
+            for file in os.listdir(activity_dir):
+                if file.endswith(".json"):
+                    fp = os.path.join(activity_dir, file)
+                    try:
+                        with open(fp, "r", encoding="utf-8", errors="ignore") as f:
+                            for line in f:
+                                if line.strip():
+                                    DATA_CACHE["activity"].append(json.loads(line))
+                    except Exception:
+                        pass
 
         messages_dir = os.path.join(PACKAGE_DIR, "Messages")
         channels = []
@@ -160,6 +233,7 @@ def index_package_data(target_dir):
 
             channel_json_path = os.path.join(folder_path, "channel.json")
             messages_json_path = os.path.join(folder_path, "messages.json")
+            messages_csv_path = os.path.join(folder_path, "messages.csv")
             channel_info = read_json_file(channel_json_path)
 
             channel_id = str(channel_info.get("id") if channel_info else (channel_id_override or entry.replace("c", "")))
@@ -216,8 +290,11 @@ def index_package_data(target_dir):
             msgs = []
             if os.path.exists(messages_json_path):
                 msgs = read_json_file(messages_json_path) or []
-                msgs.sort(key=lambda m: m.get("Timestamp") or "")
-                DATA_CACHE["messages"][channel_id] = msgs
+            elif os.path.exists(messages_csv_path):
+                msgs = parse_discord_csv(messages_csv_path)
+
+            msgs.sort(key=lambda m: m.get("Timestamp") or "")
+            DATA_CACHE["messages"][channel_id] = msgs
 
             first_ts = msgs[0].get("Timestamp") if msgs else None
             last_ts = msgs[-1].get("Timestamp") if msgs else None
@@ -253,6 +330,9 @@ def index_package_data(target_dir):
                 ch_data = process_channel_folder(entry)
                 if ch_data:
                     channels.append(ch_data)
+
+        # Sort channels by latest active message
+        channels.sort(key=lambda c: c.get("lastMessageTimestamp") or "", reverse=True)
 
         DATA_CACHE["channels"] = channels
         DATA_CACHE["is_indexed"] = True
@@ -291,10 +371,13 @@ def get_channel_messages(channel_id):
     folder_name = ch_info["folderName"] if ch_info else f"c{channel_id}"
 
     messages_json_path = os.path.join(PACKAGE_DIR, "Messages", folder_name, "messages.json")
-    if not os.path.exists(messages_json_path):
-        messages_json_path = os.path.join(PACKAGE_DIR, "Messages", f"c{channel_id}", "messages.json")
+    messages_csv_path = os.path.join(PACKAGE_DIR, "Messages", folder_name, "messages.csv")
+    msgs = []
+    if os.path.exists(messages_json_path):
+        msgs = read_json_file(messages_json_path) or []
+    elif os.path.exists(messages_csv_path):
+        msgs = parse_discord_csv(messages_csv_path)
 
-    msgs = read_json_file(messages_json_path) or []
     msgs.sort(key=lambda m: m.get("Timestamp") or "")
     DATA_CACHE["messages"][channel_id] = msgs
 
@@ -333,6 +416,8 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
                 ".json": "application/json",
                 ".png": "image/png",
                 ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".webp": "image/webp",
                 ".svg": "image/svg+xml"
             }
             content_type = mime_types.get(ext, "application/octet-stream")
@@ -358,7 +443,26 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
         if path_name == "/api/account/avatar":
             if PACKAGE_DIR:
                 account_dir = os.path.join(PACKAGE_DIR, "Account")
-                for fn in ["avatar.gif", "avatar.png", "avatar.jpg", "avatar.webp"]:
+                for fn in ["avatar.gif", "avatar.png", "avatar.jpg", "avatar.jpeg", "avatar.webp"]:
+                    fp = os.path.join(account_dir, fn)
+                    if os.path.exists(fp):
+                        ext = os.path.splitext(fn)[1].lower()
+                        mime = "image/gif" if ext == ".gif" else ("image/png" if ext == ".png" else "image/jpeg")
+                        with open(fp, 'rb') as f:
+                            data = f.read()
+                        self.send_response(200)
+                        self.send_header('Content-Type', mime)
+                        self.send_header('Content-Length', str(len(data)))
+                        self.end_headers()
+                        return self.wfile.write(data)
+            self.send_response(404)
+            self.end_headers()
+            return
+
+        if path_name == "/api/account/banner":
+            if PACKAGE_DIR:
+                account_dir = os.path.join(PACKAGE_DIR, "Account")
+                for fn in ["banner.gif", "banner.png", "banner.jpg", "banner.jpeg", "banner.webp"]:
                     fp = os.path.join(account_dir, fn)
                     if os.path.exists(fp):
                         ext = os.path.splitext(fn)[1].lower()
@@ -380,6 +484,7 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
                 "packageDir": PACKAGE_DIR,
                 "error": DATA_CACHE["indexing_error"],
                 "totalChannels": len(DATA_CACHE["channels"]),
+                "totalMessages": sum(c["messageCount"] for c in DATA_CACHE["channels"]),
                 "version": VERSION
             })
         elif path_name == "/api/account":
@@ -389,9 +494,59 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
                 "username": acc.get("username", "User"),
                 "global_name": acc.get("global_name") or acc.get("username") or "Discord User",
                 "email": acc.get("email", ""),
+                "phone": acc.get("phone", ""),
+                "bio": acc.get("bio", ""),
+                "premium_type": acc.get("premium_type", 0),
+                "created_at": acc.get("created_at", ""),
                 "avatar_hash": acc.get("avatar_hash", ""),
+                "banner_hash": acc.get("banner_hash", ""),
+                "connected_accounts": acc.get("connected_accounts", []),
+                "relationships": DATA_CACHE["relationships"],
                 "packageDir": PACKAGE_DIR
             })
+        elif path_name == "/api/servers":
+            guild_map = {}
+            for s_id, s_name in DATA_CACHE["servers"].items():
+                guild_map[s_id] = {
+                    "id": s_id,
+                    "name": s_name,
+                    "channels": [],
+                    "totalMessages": 0
+                }
+            for ch in DATA_CACHE["channels"]:
+                g_id = ch.get("guildId")
+                if g_id:
+                    if g_id not in guild_map:
+                        guild_map[g_id] = {
+                            "id": g_id,
+                            "name": ch.get("guildName") or f"Server {g_id}",
+                            "channels": [],
+                            "totalMessages": 0
+                        }
+                    guild_map[g_id]["channels"].append(ch)
+                    guild_map[g_id]["totalMessages"] += ch["messageCount"]
+            
+            servers_sorted = sorted(guild_map.values(), key=lambda s: s["totalMessages"], reverse=True)
+            self.send_json({"servers": servers_sorted})
+
+        elif path_name == "/api/activity":
+            games_map = {}
+            total_voice_minutes = 0
+            for item in DATA_CACHE["activity"]:
+                g_name = item.get("game_name") or item.get("application_name")
+                if g_name:
+                    dur = item.get("duration_minutes") or (round(item.get("duration", 0) / 60) if item.get("duration") else 10)
+                    games_map[g_name] = games_map.get(g_name, 0) + dur
+                if item.get("event_type") == "voice_channel_joined" or item.get("duration_minutes"):
+                    total_voice_minutes += item.get("duration_minutes", 0)
+
+            top_games = [{"name": k, "minutes": v, "hours": round(v / 60, 1)} for k, v in sorted(games_map.items(), key=lambda i: i[1], reverse=True)]
+            self.send_json({
+                "totalEvents": len(DATA_CACHE["activity"]),
+                "topGames": top_games,
+                "totalVoiceMinutes": total_voice_minutes
+            })
+
         elif path_name == "/api/channels":
             self.send_json({
                 "total": len(DATA_CACHE["channels"]),
@@ -399,6 +554,79 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
                 "isIndexed": DATA_CACHE["is_indexed"],
                 "channels": DATA_CACHE["channels"]
             })
+
+        elif path_name.startswith("/api/channel/") and path_name.endswith("/export"):
+            parts = path_name.split("/")
+            channel_id = parts[3]
+            fmt = query_params.get("format", ["html"])[0].lower()
+            ch_info = next((c for c in DATA_CACHE["channels"] if str(c["id"]) == str(channel_id)), None)
+            msgs = get_channel_messages(channel_id)
+            ch_name = ch_info.get("name") if ch_info else f"Channel_{channel_id}"
+            safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', ch_name)
+
+            if fmt == "json":
+                body = json.dumps(msgs, indent=2).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.send_header('Content-Disposition', f'attachment; filename="{safe_name}_export.json"')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
+
+            elif fmt == "csv":
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(["ID", "Timestamp", "AuthorID", "Contents", "Attachments"])
+                for m in msgs:
+                    writer.writerow([m.get("ID", ""), m.get("Timestamp", ""), m.get("AuthorID", ""), m.get("Contents", ""), m.get("Attachments", "")])
+                body = output.getvalue().encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/csv; charset=utf-8')
+                self.send_header('Content-Disposition', f'attachment; filename="{safe_name}_export.csv"')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
+
+            elif fmt == "txt":
+                txt = f"=====================================================\r\nDiscord Chat Export: {ch_name}\r\nChannel ID: {channel_id}\r\nTotal Messages: {len(msgs)}\r\n=====================================================\r\n\r\n"
+                for m in msgs:
+                    time_str = f"[{m.get('Timestamp', '')}] " if m.get('Timestamp') else ""
+                    txt += f"{time_str}{m.get('Contents', '')}"
+                    if m.get('Attachments'):
+                        txt += f" [Attachments: {m.get('Attachments')}]"
+                    txt += "\r\n"
+                body = txt.encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                self.send_header('Content-Disposition', f'attachment; filename="{safe_name}_export.txt"')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
+
+            else: # HTML export
+                html_body = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>{ch_name} - Export</title>
+<style>
+body {{ font-family: sans-serif; background: #313338; color: #dbdee1; padding: 20px; }}
+.header {{ background: #1e1f22; padding: 16px; border-radius: 8px; margin-bottom: 20px; }}
+.msg {{ display: flex; gap: 12px; margin-bottom: 12px; padding: 6px; }}
+.avatar {{ width: 36px; height: 36px; border-radius: 50%; background: #5865f2; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold; }}
+.time {{ font-size: 0.75rem; color: #949ba4; margin-left: 8px; }}
+</style></head><body>
+<div class="header"><h2>{ch_name}</h2><p>Channel ID: {channel_id} • {len(msgs)} messages</p></div>
+"""
+                for m in msgs:
+                    html_body += f"""<div class="msg"><div class="avatar">💬</div><div><div><strong>User</strong><span class="time">{m.get('Timestamp', '')}</span></div><div>{m.get('Contents', '')}</div></div></div>\n"""
+                html_body += "</body></html>"
+                body = html_body.encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.send_header('Content-Disposition', f'attachment; filename="{safe_name}_export.html"')
+                self.send_header('Content-Length', str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
+
         elif path_name.startswith("/api/channel/") and path_name.endswith("/messages"):
             parts = path_name.split("/")
             channel_id = parts[3]
@@ -406,7 +634,7 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
 
             search_query = query_params.get("search", [""])[0].lower()
             if search_query:
-                filtered = [m for m in messages if search_query in (m.get("Contents") or "").lower()]
+                filtered = [m for m in messages if search_query in (m.get("Contents") or "").lower() or search_query in (m.get("Attachments") or "").lower()]
             else:
                 filtered = messages
 
@@ -436,38 +664,79 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
                 "messages": paginated,
                 "hasMore": start_index > 0
             })
+
         elif path_name == "/api/search":
-            query = query_params.get("q", [""])[0].strip().lower()
-            if not query:
-                return self.send_json({"results": [], "total": 0})
+            raw_query = query_params.get("q", [""])[0].strip()
+            if not raw_query:
+                return self.send_json({"query": "", "total": 0, "results": []})
 
             try:
                 limit = int(query_params.get("limit", [1000])[0])
             except ValueError:
                 limit = 1000
 
+            max_per_ch = max(50, limit // 5)
+
+            filter_image = "has:image" in raw_query.lower()
+            filter_video = "has:video" in raw_query.lower()
+            filter_audio = "has:audio" in raw_query.lower()
+            filter_file = "has:file" in raw_query.lower()
+            filter_link = "has:link" in raw_query.lower()
+
+            filter_from = None
+            m_from = re.search(r'from:(\S+)', raw_query, re.IGNORECASE)
+            if m_from:
+                filter_from = m_from.group(1).lower()
+
+            clean_q = re.sub(r'(has:\w+|from:\S+|before:\S+|after:\S+)', '', raw_query, flags=re.IGNORECASE).strip().lower()
+
             results = []
             for ch in DATA_CACHE["channels"]:
                 ch_id = ch["id"]
                 msgs = get_channel_messages(ch_id)
+                ch_matches = 0
+
                 for i in range(len(msgs) - 1, -1, -1):
                     msg = msgs[i]
-                    if query in (msg.get("Contents") or "").lower():
-                        results.append({
-                            "channelId": ch_id,
-                            "channelName": ch.get("name") or f"Channel {ch_id}",
-                            "guildName": ch.get("guildName") or "",
-                            "type": ch.get("type") or "UNKNOWN",
-                            "recipientId": ch.get("recipientId"),
-                            "recipientHandle": ch.get("recipientHandle") or "",
-                            "message": msg
-                        })
-                        if len(results) >= limit:
-                            break
+                    contents = (msg.get("Contents") or "").lower()
+                    atts = (msg.get("Attachments") or "").lower()
+
+                    if filter_image and not re.search(r'\.(png|jpg|jpeg|webp|gif|svg)', atts, re.I):
+                        continue
+                    if filter_video and not re.search(r'\.(mp4|webm|mov|mkv)', atts, re.I) and "youtube.com" not in contents and "youtu.be" not in contents:
+                        continue
+                    if filter_audio and not re.search(r'\.(mp3|ogg|wav|m4a|flac)', atts, re.I):
+                        continue
+                    if filter_file and not atts:
+                        continue
+                    if filter_link and "http://" not in contents and "https://" not in contents:
+                        continue
+
+                    if filter_from:
+                        if filter_from != "me" and filter_from not in (ch.get("name") or "").lower() and filter_from not in (ch.get("recipientHandle") or "").lower() and filter_from not in (ch.get("recipientId") or ""):
+                            continue
+
+                    if clean_q and clean_q not in contents and clean_q not in atts:
+                        continue
+
+                    results.append({
+                        "channelId": ch_id,
+                        "channelName": ch.get("name") or f"Channel {ch_id}",
+                        "guildName": ch.get("guildName") or "",
+                        "type": ch.get("type") or "UNKNOWN",
+                        "recipientId": ch.get("recipientId"),
+                        "recipientHandle": ch.get("recipientHandle") or "",
+                        "message": msg
+                    })
+
+                    ch_matches += 1
+                    if len(results) >= limit or ch_matches >= max_per_ch:
+                        break
+
                 if len(results) >= limit:
                     break
 
-            self.send_json({"query": query, "total": len(results), "results": results})
+            self.send_json({"query": raw_query, "total": len(results), "results": results})
 
         elif path_name == "/api/stats":
             total_msgs = 0
@@ -504,6 +773,126 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
                     "messageCount": d["messageCount"]
                 } for d in top_dms[:10]],
                 "topGuilds": top_guilds[:10]
+            })
+
+        elif path_name == "/api/stats/advanced":
+            total_msgs = 0
+            total_chars = 0
+            total_words = 0
+            heatmap = [[0 for _ in range(24)] for _ in range(7)]
+            monthly_map = {}
+            yearly_map = {}
+            daily_count_map = {}
+            emoji_map = {}
+            word_map = {}
+            attachment_stats = {"images": 0, "videos": 0, "audio": 0, "documents": 0, "total": 0}
+
+            stop_words = set([
+                'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i', 'it', 'for', 'not', 'on', 'with', 'he',
+                'as', 'you', 'do', 'at', 'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she', 'or',
+                'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what', 'so', 'up', 'out', 'if', 'about',
+                'who', 'get', 'which', 'go', 'me', 'when', 'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know',
+                'take', 'people', 'into', 'year', 'your', 'good', 'some', 'could', 'them', 'see', 'other', 'than',
+                'then', 'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also', 'back', 'after', 'use', 'two',
+                'how', 'our', 'work', 'first', 'well', 'way', 'even', 'new', 'want', 'because', 'any', 'these', 'give',
+                'day', 'most', 'us', 'is', 'are', 'was', 'were', 'am', 'been', 'has', 'had', 'did', 'does', 'im', 'dont'
+            ])
+
+            for ch in DATA_CACHE["channels"]:
+                msgs = get_channel_messages(ch["id"])
+                for m in msgs:
+                    total_msgs += 1
+                    contents = m.get("Contents") or ""
+                    atts = m.get("Attachments") or ""
+                    total_chars += len(contents)
+
+                    # Custom emojis
+                    for em in re.findall(r'<a?:([a-zA-Z0-9_]+):(\d+)>', contents):
+                        key = f":{em[0]}:"
+                        emoji_map[key] = emoji_map.get(key, 0) + 1
+
+                    # Words
+                    words = re.findall(r'\b[a-zA-Z]{3,}\b', contents.lower())
+                    total_words += len(words)
+                    for w in words:
+                        if w not in stop_words:
+                            word_map[w] = word_map.get(w, 0) + 1
+
+                    # Attachments
+                    if atts:
+                        urls = [u for u in atts.split() if u]
+                        attachment_stats["total"] += len(urls)
+                        for u in urls:
+                            if re.search(r'\.(png|jpg|jpeg|webp|gif|svg)', u, re.I):
+                                attachment_stats["images"] += 1
+                            elif re.search(r'\.(mp4|webm|mov|mkv)', u, re.I):
+                                attachment_stats["videos"] += 1
+                            elif re.search(r'\.(mp3|ogg|wav|m4a|flac)', u, re.I):
+                                attachment_stats["audio"] += 1
+                            else:
+                                attachment_stats["documents"] += 1
+
+                    # Timestamps
+                    ts = m.get("Timestamp")
+                    if ts:
+                        try:
+                            clean_ts = ts.replace("Z", "+00:00")
+                            dt = datetime.fromisoformat(clean_ts)
+                            dow = (dt.weekday() + 1) % 7 # 0 = Sunday
+                            hour = dt.hour
+                            heatmap[dow][hour] += 1
+
+                            m_key = f"{dt.year}-{dt.month:02d}"
+                            monthly_map[m_key] = monthly_map.get(m_key, 0) + 1
+                            yearly_map[dt.year] = yearly_map.get(dt.year, 0) + 1
+                            d_key = dt.strftime("%Y-%m-%d")
+                            daily_count_map[d_key] = daily_count_map.get(d_key, 0) + 1
+                        except Exception:
+                            pass
+
+            monthly_timeline = [{"month": k, "count": v} for k, v in sorted(monthly_map.items())]
+            yearly_timeline = [{"year": k, "count": v} for k, v in sorted(yearly_map.items())]
+            top_emojis = [{"emoji": k, "count": v} for k, v in sorted(emoji_map.items(), key=lambda x: x[1], reverse=True)[:15]]
+            top_words = [{"word": k, "count": v} for k, v in sorted(word_map.items(), key=lambda x: x[1], reverse=True)[:20]]
+
+            daily_dates = sorted(daily_count_map.keys())
+            most_active = {"date": "", "count": 0}
+            longest_streak = 0
+            cur_streak = 0
+            prev_d = None
+
+            for d_str in daily_dates:
+                c = daily_count_map[d_str]
+                if c > most_active["count"]:
+                    most_active = {"date": d_str, "count": c}
+                cur_d = datetime.strptime(d_str, "%Y-%m-%d").date()
+                if prev_d:
+                    if (cur_d - prev_d).days == 1:
+                        cur_streak += 1
+                    else:
+                        longest_streak = max(longest_streak, cur_streak)
+                        cur_streak = 1
+                else:
+                    cur_streak = 1
+                prev_d = cur_d
+            longest_streak = max(longest_streak, cur_streak)
+
+            self.send_json({
+                "totalMessages": total_msgs,
+                "totalCharacters": total_chars,
+                "totalWords": total_words,
+                "avgMessageLength": round(total_chars / total_msgs) if total_msgs else 0,
+                "heatmap": heatmap,
+                "monthlyTimeline": monthly_timeline,
+                "yearlyTimeline": yearly_timeline,
+                "topEmojis": top_emojis,
+                "topWords": top_words,
+                "attachmentStats": attachment_stats,
+                "activityStreaks": {
+                    "activeDays": len(daily_dates),
+                    "longestStreak": longest_streak,
+                    "mostActiveDay": most_active
+                }
             })
 
         else:
@@ -622,7 +1011,15 @@ def launch_gui():
 
 
 def main():
-    global PACKAGE_DIR, SERVER_THREAD
+    global PACKAGE_DIR, SERVER_THREAD, PORT
+
+    if "--port" in sys.argv:
+        port_idx = sys.argv.index("--port")
+        if port_idx + 1 < len(sys.argv):
+            try:
+                PORT = int(sys.argv[port_idx + 1])
+            except ValueError:
+                pass
 
     if "--package" in sys.argv:
         package_arg_idx = sys.argv.index("--package")
@@ -640,7 +1037,22 @@ def main():
     if PACKAGE_DIR and os.path.exists(PACKAGE_DIR):
         index_package_data(PACKAGE_DIR)
 
-    launch_gui()
+    if "--headless" in sys.argv or "--server" in sys.argv or "--no-gui" in sys.argv:
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
+    else:
+        try:
+            launch_gui()
+        except Exception as e:
+            print(f"[GUI Notice] Running in background server mode: {e}")
+            try:
+                while True:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                pass
 
 if __name__ == "__main__":
     main()

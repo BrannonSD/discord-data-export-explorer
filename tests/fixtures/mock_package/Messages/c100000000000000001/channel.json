@@ -1,0 +1,9 @@
+{
+  "id": "100000000000000001",
+  "type": "GUILD_TEXT",
+  "name": "general",
+  "guild": {
+    "id": "900000000000000001",
+    "name": "Community Hangout"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "id": "112233445566778899",
+  "username": "TestExplorerUser#0000",
+  "global_name": "Explorer Dev",
+  "email": "developer@example.com",
+  "phone": "+1234567890",
+  "avatar_hash": "a1b2c3d4e5f6",
+  "banner_hash": "b2c3d4e5f6a1",
+  "accent_color": 5793266,
+  "premium_type": 2,
+  "created_at": "2018-05-15T12:00:00.000Z",
+  "bio": "Building tools for Discord data exploration! 🚀",
+  "connected_accounts": [
+    { "type": "github", "id": "octocat", "name": "octocat", "verified": true },
+    { "type": "spotify", "id": "spotifyuser", "name": "Spotify Enthusiast", "verified": true },
+    { "type": "steam", "id": "76561198000000000", "name": "Gamer123", "verified": true },
+    { "type": "twitch", "id": "streamer", "name": "StreamerLive", "verified": true },
+    { "type": "youtube", "id": "ytchannel", "name": "TechChannel", "verified": true }
+  ],
+  "relationships": [
+    { "id": "223344556677889900", "type": 1, "user": { "username": "BestFriend", "global_name": "Best Friend" } },
+    { "id": "334455667788990011", "type": 1, "user": { "username": "GamingBuddy", "global_name": "Gamer Buddy" } }
+  ]
+}

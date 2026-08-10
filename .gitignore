@@ -1,14 +1,23 @@
 # Dependencies
 node_modules/
 
-# Discord Package Data (NEVER COMMIT PERSONAL DATA)
-Account/
-Activity/
-Messages/
-Servers/
+# Python Cache & Build Artifacts
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.spec
+
+# Discord Personal Package Data (NEVER COMMIT PERSONAL DATA)
+/Account/
+/Activity/
+/Messages/
+/Servers/
 README.txt
-*.json
+/*.json
 !package.json
+!package-lock.json
+!tests/**
 dummy_package/
 
 # Logs & Temporary Files
