@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [1.3.1] - 2026-08-10
+
+### 🎨 UI Polish & Showcase Upgrades
+- **Search Icon Sizing Fix**: Added explicit dimensions and styling to `.search-icon-small` to prevent oversized SVG rendering in in-chat search bars.
+- **Markdown URL Lookbehind & Auto-Link Ordering**: Streamlined markdown parsing sequence so custom emoji attributes and URL linkifiers never conflict.
+- **Theme Showcase Gallery**: Added real screenshots for all four non-default themes (Midnight AMOLED, Discord Light, Cyberpunk Neon, Sakura Pastel) to the documentation.
+- **Recompiled Standalone Binary**: Updated `DiscordDataExportExplorer.exe` (v1.3.1) with latest styling fixes and standalone assets.
+
+---
+
 ## [1.3.0] - 2026-08-10
 
 ### 🚀 Major Feature Additions

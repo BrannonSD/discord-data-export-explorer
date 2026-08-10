@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Discord Data Export Explorer - v1.3.0 Standalone Desktop Application Launcher & Server
+Discord Data Export Explorer - v1.3.1 Standalone Desktop Application Launcher & Server
+Zero-dependency Python desktop backend serving embedded UI and handling native file picker.
 """
 import os
 import sys
@@ -17,7 +18,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 
 # Global Data Cache
 PACKAGE_DIR = ""

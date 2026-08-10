@@ -1043,7 +1043,7 @@ if (packageDir) {
 
 app.listen(PORT, () => {
   console.log(`\n==================================================`);
-  console.log(`🚀 Discord Data Export Explorer v1.3.0 Running!`);
+  console.log(`🚀 Discord Data Export Explorer v1.3.1 Running!`);
   console.log(`👉 Access Web UI: http://localhost:${PORT}`);
   if (packageDir) console.log(`📂 Package Directory: ${packageDir}`);
   console.log(`==================================================\n`);

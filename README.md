@@ -1,6 +1,6 @@
 # 💬 Discord Data Export Explorer
 
-[![Version: 1.3.0](https://img.shields.io/badge/Version-v1.3.0-5865F2.svg)](#-features)
+[![Version: 1.3.1](https://img.shields.io/badge/Version-v1.3.1-5865F2.svg)](#-features)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/Node.js-v16%2B-green.svg)](https://nodejs.org/)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://python.org/)
@@ -13,16 +13,19 @@
 
 ## 📸 Interface Preview
 
-### Main Chat Explorer View (Dark Theme)
+### Main Chat Explorer View (Default Dark Theme)
 ![Discord Data Export Explorer Chat Interface](preview_chat.png)
 
 ### Export Analytics & Message Statistics Studio
 ![Discord Data Export Explorer Analytics Modal](preview_stats.png)
 
-### Midnight AMOLED & Cyberpunk Themes
-| 🖤 Midnight AMOLED | 🌌 Cyberpunk Neon |
+### 🎨 Complete Theme Showcase (Non-Default Themes)
+
+| 🖤 Midnight AMOLED | ☀️ Discord Light |
 | :---: | :---: |
-| ![Midnight AMOLED Theme](preview_theme_midnight.png) | ![Cyberpunk Theme](preview_theme_cyberpunk.png) |
+| ![Midnight AMOLED Theme](preview_theme_midnight.png) | ![Discord Light Theme](preview_theme_light.png) |
+| **🌌 Cyberpunk Neon** | **🌸 Sakura Pastel** |
+| ![Cyberpunk Theme](preview_theme_cyberpunk.png) | ![Sakura Theme](preview_theme_sakura.png) |
 
 ---
 

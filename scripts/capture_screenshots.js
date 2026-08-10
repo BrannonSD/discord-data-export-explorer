@@ -29,7 +29,7 @@ async function capture() {
 
   await wait(2500);
 
-  console.log(`Launching Puppeteer with viewport 1440x950...`);
+  console.log(`Launching Puppeteer with viewport 1440x960...`);
   const browser = await puppeteer.launch({
     executablePath: CHROME_PATH,
     headless: 'new',
@@ -98,22 +98,10 @@ async function capture() {
     });
     await wait(500);
 
-    // 3. Switch to Cyberpunk Theme
-    console.log(`Applying Cyberpunk theme...`);
+    // Reset viewport back to 1440x960
     await page.setViewport({ width: 1440, height: 960, deviceScaleFactor: 2 });
-    await page.evaluate(() => {
-      const app = document.getElementById('app');
-      app.className = 'theme-cyberpunk density-cozy';
-      localStorage.setItem('discord_export_theme', 'theme-cyberpunk');
-    });
-    await wait(1000);
 
-    console.log(`Capturing preview_theme_cyberpunk.png...`);
-    const cyberpunkPath = path.resolve(__dirname, '..', 'preview_theme_cyberpunk.png');
-    await page.screenshot({ path: cyberpunkPath, type: 'png' });
-    console.log(`✅ Saved: ${cyberpunkPath}`);
-
-    // 4. Switch to Midnight (AMOLED) Theme
+    // 3. Switch to Midnight (AMOLED) Theme
     console.log(`Applying Midnight AMOLED theme...`);
     await page.evaluate(() => {
       const app = document.getElementById('app');
@@ -121,11 +109,49 @@ async function capture() {
       localStorage.setItem('discord_export_theme', 'theme-midnight');
     });
     await wait(1000);
-
     console.log(`Capturing preview_theme_midnight.png...`);
     const midnightPath = path.resolve(__dirname, '..', 'preview_theme_midnight.png');
     await page.screenshot({ path: midnightPath, type: 'png' });
     console.log(`✅ Saved: ${midnightPath}`);
+
+    // 4. Switch to Light Theme
+    console.log(`Applying Light theme...`);
+    await page.evaluate(() => {
+      const app = document.getElementById('app');
+      app.className = 'theme-light density-cozy';
+      localStorage.setItem('discord_export_theme', 'theme-light');
+    });
+    await wait(1000);
+    console.log(`Capturing preview_theme_light.png...`);
+    const lightPath = path.resolve(__dirname, '..', 'preview_theme_light.png');
+    await page.screenshot({ path: lightPath, type: 'png' });
+    console.log(`✅ Saved: ${lightPath}`);
+
+    // 5. Switch to Cyberpunk Theme
+    console.log(`Applying Cyberpunk theme...`);
+    await page.evaluate(() => {
+      const app = document.getElementById('app');
+      app.className = 'theme-cyberpunk density-cozy';
+      localStorage.setItem('discord_export_theme', 'theme-cyberpunk');
+    });
+    await wait(1000);
+    console.log(`Capturing preview_theme_cyberpunk.png...`);
+    const cyberpunkPath = path.resolve(__dirname, '..', 'preview_theme_cyberpunk.png');
+    await page.screenshot({ path: cyberpunkPath, type: 'png' });
+    console.log(`✅ Saved: ${cyberpunkPath}`);
+
+    // 6. Switch to Sakura Theme
+    console.log(`Applying Sakura theme...`);
+    await page.evaluate(() => {
+      const app = document.getElementById('app');
+      app.className = 'theme-sakura density-cozy';
+      localStorage.setItem('discord_export_theme', 'theme-sakura');
+    });
+    await wait(1000);
+    console.log(`Capturing preview_theme_sakura.png...`);
+    const sakuraPath = path.resolve(__dirname, '..', 'preview_theme_sakura.png');
+    await page.screenshot({ path: sakuraPath, type: 'png' });
+    console.log(`✅ Saved: ${sakuraPath}`);
 
   } catch (err) {
     console.error('Error during screenshot capture:', err);

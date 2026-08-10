@@ -25,8 +25,8 @@ if (!token) {
 
 const OWNER = 'BrannonSD';
 const REPO = 'discord-data-export-explorer';
-const TAG = 'v1.3.0';
-const RELEASE_NAME = 'v1.3.0 - Discord Data Export Explorer';
+const TAG = 'v1.3.1';
+const RELEASE_NAME = 'v1.3.1 - Discord Data Export Explorer';
 
 const releaseNotesPath = path.join(__dirname, '..', 'RELEASE_NOTES.md');
 const releaseBody = fs.readFileSync(releaseNotesPath, 'utf8');
