@@ -982,17 +982,21 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. Inline Code: `code`
     escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
 
-    // 3. Custom Animated & Static Discord Emojis: <:name:id> or <a:name:id>
+    // 3. Auto-link URLs (run before injecting HTML tags with src/href)
+    const urlRegex = /(https?:\/\/[^\s<"'>]+)/g;
+    escaped = escaped.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color: var(--brand-blurple); text-decoration: underline;">$1</a>');
+
+    // 4. Custom Animated & Static Discord Emojis: <:name:id> or <a:name:id>
     escaped = escaped.replace(/&lt;(a)?:([a-zA-Z0-9_]+):(\d+)&gt;/g, (match, isAnim, name, id) => {
       const ext = isAnim ? 'gif' : 'png';
       const url = `https://cdn.discordapp.com/emojis/${id}.${ext}?size=48&quality=lossless`;
-      return `<img class="discord-custom-emoji" src="${url}" alt=":${name}:" title=":${name}:" onerror="this.outerHTML=':${name}:';" />`;
+      return `<img class="discord-custom-emoji" src="${url}" alt=":${name}:" title=":${name}:" onerror="this.onerror=null; this.src='https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/1f389.svg';" />`;
     });
 
-    // 4. Interactive Spoilers: ||text||
+    // 5. Interactive Spoilers: ||text||
     escaped = escaped.replace(/\|\|([\s\S]+?)\|\|/g, '<span class="discord-spoiler" onclick="this.classList.toggle(\'revealed\')">$1</span>');
 
-    // 5. Discord Timestamps: <t:1700000000:R>, <t:1700000000:F>, etc.
+    // 6. Discord Timestamps: <t:1700000000:R>, <t:1700000000:F>, etc.
     escaped = escaped.replace(/&lt;t:(\d+)(?::([tTdDfFR]))?&gt;/g, (match, ts, style) => {
       const date = new Date(parseInt(ts) * 1000);
       const relative = getRelativeTimeString(date);
@@ -1000,37 +1004,33 @@ document.addEventListener('DOMContentLoaded', () => {
       return `<span class="discord-timestamp-badge" title="${full}">${relative}</span>`;
     });
 
-    // 6. Channel Mentions: <#channel_id>
+    // 7. Channel Mentions: <#channel_id>
     escaped = escaped.replace(/&lt;#(\d+)&gt;/g, (match, chId) => {
       return `<span class="channel-mention-pill" onclick="jumpToChannel('${chId}')">#channel</span>`;
     });
 
-    // 7. User Mentions: <@user_id> or <@!user_id>
+    // 8. User Mentions: <@user_id> or <@!user_id>
     escaped = escaped.replace(/&lt;@!?(\d+)&gt;/g, '<span class="user-mention-pill">@$1</span>');
 
-    // 8. Role Mentions: <@&role_id>
+    // 9. Role Mentions: <@&role_id>
     escaped = escaped.replace(/&lt;@&amp;(\d+)&gt;/g, '<span class="role-mention-pill">@role</span>');
 
-    // 9. Subtext: -# text
+    // 10. Subtext: -# text
     escaped = escaped.replace(/^-#\s+(.+)$/gm, '<span class="discord-subtext">$1</span>');
 
-    // 10. Headers: # H1, ## H2, ### H3
+    // 11. Headers: # H1, ## H2, ### H3
     escaped = escaped.replace(/^###\s+(.+)$/gm, '<h4 style="color: var(--text-bold); margin: 6px 0;">$1</h4>');
     escaped = escaped.replace(/^##\s+(.+)$/gm, '<h3 style="color: var(--text-bold); margin: 6px 0;">$1</h3>');
     escaped = escaped.replace(/^#\s+(.+)$/gm, '<h2 style="color: var(--text-bold); margin: 6px 0;">$1</h2>');
 
-    // 11. Blockquotes: > quote
+    // 12. Blockquotes: > quote
     escaped = escaped.replace(/^>\s+(.+)$/gm, '<blockquote>$1</blockquote>');
 
-    // 12. Formatting: Bold, Italic, Strikethrough, Underline
+    // 13. Formatting: Bold, Italic, Strikethrough, Underline
     escaped = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     escaped = escaped.replace(/\*([^*]+)\*/g, '<em>$1</em>');
     escaped = escaped.replace(/~~([^~]+)~~/g, '<s>$1</s>');
     escaped = escaped.replace(/__([^_]+)__/g, '<u>$1</u>');
-
-    // 13. Auto-link URLs
-    const urlRegex = /(https?:\/\/[^\s<]+)/g;
-    escaped = escaped.replace(urlRegex, '<a href="$1" target="_blank" rel="noopener noreferrer" style="color: var(--brand-blurple); text-decoration: underline;">$1</a>');
 
     // 14. Highlight search matches if present
     if (highlightTerm) {

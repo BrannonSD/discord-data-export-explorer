@@ -19,6 +19,7 @@ README.txt
 !package-lock.json
 !tests/**
 dummy_package/
+dummy_showcase_package/
 
 # Logs & Temporary Files
 *.log

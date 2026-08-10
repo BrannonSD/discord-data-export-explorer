@@ -13,11 +13,16 @@
 
 ## 📸 Interface Preview
 
-### Main Chat Explorer View
+### Main Chat Explorer View (Dark Theme)
 ![Discord Data Export Explorer Chat Interface](preview_chat.png)
 
 ### Export Analytics & Message Statistics Studio
 ![Discord Data Export Explorer Analytics Modal](preview_stats.png)
+
+### Midnight AMOLED & Cyberpunk Themes
+| 🖤 Midnight AMOLED | 🌌 Cyberpunk Neon |
+| :---: | :---: |
+| ![Midnight AMOLED Theme](preview_theme_midnight.png) | ![Cyberpunk Theme](preview_theme_cyberpunk.png) |
 
 ---
 
