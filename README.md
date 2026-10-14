@@ -5,7 +5,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-v16%2B-green.svg)](https://nodejs.org/)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://python.org/)
 [![Tests](https://img.shields.io/badge/Tests-100%25%20Passing-brightgreen.svg)](#-automated-testing)
-[![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local-brightgreen.svg)](#-privacy--security)
+[![Local processing](https://img.shields.io/badge/Package%20processing-local-blue.svg)](#-privacy--security)
 
 > A lightweight, feature-rich desktop application and web explorer to easily browse, search, analyze, and navigate your unzipped **Discord Data Package** exports with an authentic Discord-styled UI, direct profile launch shortcuts, user ID tag export tools, full media lightbox, interactive analytics, and multi-format offline chat exporters.
 
@@ -71,7 +71,7 @@
   - **`Profile`** button (`discord://-/users/{user_id}`) to open recipient profile cards natively.
 - **🛡️ Deleted User ID Log Recovery**: Automatic background recovery of deleted account IDs from activity logs and message attachment telemetry.
 - **🖥️ Standalone Windows Desktop Launcher**: Single executable launcher and cross-platform Python GUI.
-- **🔒 100% Private & Local**: Runs entirely on your local machine (`localhost`). Zero external servers, zero telemetry, zero data collection.
+- **🔒 Local Package Processing**: The app reads and indexes the selected package on your computer. Web fonts, profile/emoji images, and optional rich embeds can load from external services; see [Privacy & Security](#-privacy--security).
 
 ---
 
@@ -154,11 +154,11 @@ python tests/test_gui_launcher.py
 
 ## 🔒 Privacy & Security
 
-Your privacy is paramount. **Discord Data Export Explorer**:
-- Runs 100% locally on your own computer (`localhost:3000`).
-- Does **NOT** send any data to external servers or APIs.
-- Does **NOT** track usage, analytics, or IP addresses.
-- Your message data never leaves your disk.
+**Package processing is local, but the browser experience is not fully offline.** The app reads the selected Discord export from disk and serves it to your browser; it does not implement a developer-operated collection or analytics service. However:
+- The page loads Google Fonts, Discord avatar/emoji CDN images and a fallback emoji CDN; YouTube and Spotify embeds can contact their respective providers. Loading these assets can expose network metadata (and referenced asset/embed identifiers) to those providers. Disable network access or block remote resources if you need an offline viewing session; some avatars, emoji, fonts and embeds will then be unavailable.
+- **Node.js mode (run node server.js --package ...)** starts Express on the configured port without restricting it to loopback (app.listen(PORT)) and enables CORS without an origin restriction. There is no application login protecting these package API routes. On a shared or untrusted network, another device or web origin may be able to access the export. Use only on a trusted, firewalled machine/network, and do not expose port 3000 to the internet.
+- **Python GUI / bundled standalone mode** uses its own HTTP server bound to `127.0.0.1:3000` (different from the Node mode). Keep the selected export and any generated HTML/CSV/JSON/TXT copies private; exports may contain sensitive messages.
+- Running npm install retrieves dependencies from the package registry unless already cached. No real Discord sign-in is required to browse an existing downloaded data package.
 
 ---
 
