@@ -1,6 +1,6 @@
 # 💬 Discord Data Export Explorer
 
-[![Version: 1.3.1](https://img.shields.io/badge/Version-v1.3.1-5865F2.svg)](#-features)
+[![Version: 1.3.1](https://img.shields.io/badge/Version-v1.3.1-5865F2.svg)](#key-features)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/Node.js-v16%2B-green.svg)](https://nodejs.org/)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://python.org/)
@@ -29,8 +29,7 @@
 
 ---
 
-## 🌟 Key Features
-
+## Key Features
 - **💬 Authentic Discord Design & Themes**:
   - 🌙 **Dark** (Default Discord `#313338`)
   - 🖤 **Midnight** (AMOLED Black)
@@ -121,12 +120,11 @@ python gui_launcher.py
 
 | Shortcut | Action |
 | :--- | :--- |
-| `Ctrl + K` or `Ctrl + F` | Open Global Cross-Chat Search |
+| `Ctrl + K` | Open Global Cross-Chat Search |
 | `Ctrl + Shift + S` | Open Interactive Analytics Studio |
 | `Ctrl + Shift + B` | Open Starred Bookmarks Hub |
-| `Esc` | Close open modal / Lightbox / Clear search |
+| `Esc` | Close open modal or Lightbox |
 | `◀` / `▶` | Navigate Lightbox Gallery |
-| `+` / `-` | Zoom In / Zoom Out in Lightbox |
 
 ---
 
