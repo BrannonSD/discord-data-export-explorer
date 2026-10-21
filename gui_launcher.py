@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Discord Data Export Explorer - v1.3.1 Standalone Desktop Application Launcher & Server
+Discord Data Export Explorer - v1.3.2 Standalone Desktop Application Launcher & Server
 Zero-dependency Python desktop backend serving embedded UI and handling native file picker.
 """
 import os
@@ -18,7 +18,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 
 # Global Data Cache
 PACKAGE_DIR = ""
@@ -396,7 +396,6 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
         body = json.dumps(data).encode('utf-8')
         self.send_response(code)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -436,7 +435,26 @@ class DiscordRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"404 Not Found")
 
+    def allow_local_request(self):
+        hosts = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
+        origin = self.headers.get("Origin")
+        if (self.headers.get("Host", "").lower() not in hosts
+                or (origin is not None and origin not in {f"http://{host}" for host in hosts})
+                or self.headers.get("Sec-Fetch-Site") == "cross-site"):
+            self.send_error(403, "Local same-origin application access required")
+            return False
+        return True
+
+    def end_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def do_GET(self):
+        if not self.allow_local_request():
+            return
         parsed = urllib.parse.urlparse(self.path)
         path_name = parsed.path
         query_params = urllib.parse.parse_qs(parsed.query)
@@ -900,6 +918,8 @@ body {{ font-family: sans-serif; background: #313338; color: #dbdee1; padding: 2
             self.serve_static_file(path_name)
 
     def do_POST(self):
+        if not self.allow_local_request():
+            return
         if self.path == "/api/set-package-path":
             length = int(self.headers.get('Content-Length', 0))
             raw_data = self.rfile.read(length)

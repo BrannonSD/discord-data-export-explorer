@@ -11,14 +11,14 @@ const FIXTURE_DIR = path.resolve(__dirname, 'fixtures', 'mock_package');
 
 let serverProcess = null;
 
-function request(urlPath, method = 'GET', body = null) {
+function request(urlPath, method = 'GET', body = null, headers = {}) {
   return new Promise((resolve, reject) => {
     const options = {
       hostname: '127.0.0.1',
       port: TEST_PORT,
       path: urlPath,
       method: method,
-      headers: {}
+      headers: { ...headers }
     };
 
     if (body) {
@@ -87,6 +87,17 @@ async function runTests() {
   }
 
   try {
+    await test('Private export API rejects foreign origins and DNS rebinding hosts', async () => {
+      assert.strictEqual((await request('/api/account', 'GET', null, {Origin: 'https://attacker.example'})).status, 403);
+      assert.strictEqual((await request('/api/account', 'GET', null, {Origin: 'null'})).status, 403);
+      assert.strictEqual((await request('/api/account', 'GET', null, {Host: `attacker.example:${TEST_PORT}`})).status, 403);
+      assert.strictEqual((await request('/api/account', 'GET', null, {'Sec-Fetch-Site': 'cross-site'})).status, 403);
+      const own = await request('/api/account', 'GET', null, {Origin: `http://127.0.0.1:${TEST_PORT}`});
+      assert.strictEqual(own.status, 200);
+      assert.strictEqual(own.headers['cache-control'], 'no-store');
+      assert.strictEqual(own.headers['access-control-allow-origin'], undefined);
+    });
+
     // Test 1: Status Endpoint
     await test('GET /api/status returns indexed state & totals', async () => {
       const res = await request('/api/status');

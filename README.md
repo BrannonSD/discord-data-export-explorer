@@ -1,9 +1,9 @@
 # 💬 Discord Data Export Explorer
 
-[![Version: 1.3.1](https://img.shields.io/badge/Version-v1.3.1-5865F2.svg)](#-features)
+[![Version: 1.3.2](https://img.shields.io/badge/Version-v1.3.2-5865F2.svg)](#-features)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Node.js](https://img.shields.io/badge/Node.js-v16%2B-green.svg)](https://nodejs.org/)
-[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg)](https://python.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-v26.12.1%2B-green.svg)](https://nodejs.org/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://python.org/)
 [![Tests](https://img.shields.io/badge/Tests-100%25%20Passing-brightgreen.svg)](#-automated-testing)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local-brightgreen.svg)](#-privacy--security)
 
@@ -175,3 +175,7 @@ Your privacy is paramount. **Discord Data Export Explorer**:
 This project is licensed under the [MIT License](LICENSE).
 
 Developed with ❤️ by [BrannonSD](https://github.com/BrannonSD).
+
+### Local security boundary
+
+Both servers accept only this application's loopback hosts and origins. The Node source server requires Node 26.12.1 or a later Node 26 security patch. The standalone Windows executable uses its bundled Python runtime and does not use the system Node installation. Private export responses are not cacheable or accessible to arbitrary website origins.
