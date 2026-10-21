@@ -1,5 +1,4 @@
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const readline = require('readline');
@@ -19,7 +18,21 @@ if (portArgIdx !== -1 && process.argv[portArgIdx + 1]) {
 }
 const PORT = port;
 
-app.use(cors());
+// Exports contain private messages: accept only this loopback application's hosts/origins.
+const localHosts = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Cache-Control', 'no-store');
+  if (!localHosts.has(String(req.headers.host || '').toLowerCase())) return res.status(403).json({error: 'Local application host required'});
+  const origin = req.headers.origin;
+  if ((origin && ![...localHosts].some(host => origin === `http://${host}`)) || req.headers['sec-fetch-site'] === 'cross-site') {
+    return res.status(403).json({error: 'Cross-origin access denied'});
+  }
+  next();
+});
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -977,8 +990,8 @@ app.get('/api/channel/:id/export', (req, res) => {
 </head>
 <body>
   <div class="header">
-    <h1>💬 ${escapeHtml(cleanChName)}</h1>
-    <p>Channel ID: ${escapeHtml(channelId)} • Total Messages: ${messages.length} • Exported on ${new Date().toLocaleDateString()}</p>
+    <h1>ðŸ’¬ ${escapeHtml(cleanChName)}</h1>
+    <p>Channel ID: ${escapeHtml(channelId)} â€¢ Total Messages: ${messages.length} â€¢ Exported on ${new Date().toLocaleDateString()}</p>
   </div>
   <div class="message-feed">
 `;
@@ -987,14 +1000,14 @@ app.get('/api/channel/:id/export', (req, res) => {
     const formattedTime = m.Timestamp ? new Date(m.Timestamp).toLocaleString() : '';
     htmlContent += `
     <div class="message-item">
-      <div class="avatar">💬</div>
+      <div class="avatar">ðŸ’¬</div>
       <div class="content">
         <div class="author-time">
           <span class="author">User</span>
           <span class="time">${escapeHtml(formattedTime)}</span>
         </div>
         <div class="text">${escapeHtml(m.Contents || '')}</div>
-        ${m.Attachments ? `<div class="attachments"><a href="${escapeHtml(m.Attachments)}" target="_blank" class="att-link">📎 ${escapeHtml(m.Attachments)}</a></div>` : ''}
+        ${m.Attachments ? `<div class="attachments"><a href="${escapeHtml(m.Attachments)}" target="_blank" class="att-link">ðŸ“Ž ${escapeHtml(m.Attachments)}</a></div>` : ''}
       </div>
     </div>`;
   }
@@ -1041,10 +1054,10 @@ if (packageDir) {
   indexPackage(packageDir);
 }
 
-app.listen(PORT, () => {
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`\n==================================================`);
-  console.log(`🚀 Discord Data Export Explorer v1.3.1 Running!`);
-  console.log(`👉 Access Web UI: http://localhost:${PORT}`);
-  if (packageDir) console.log(`📂 Package Directory: ${packageDir}`);
+  console.log(`ðŸš€ Discord Data Export Explorer v1.3.1 Running!`);
+  console.log(`ðŸ‘‰ Access Web UI: http://localhost:${PORT}`);
+  if (packageDir) console.log(`ðŸ“‚ Package Directory: ${packageDir}`);
   console.log(`==================================================\n`);
 });

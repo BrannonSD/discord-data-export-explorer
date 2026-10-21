@@ -38,3 +38,10 @@ Thumbs.db
 .idea/
 *.suo
 *.user
+
+# Disposable security-test and release artifacts
+**/__pycache__/
+*.py[cod]
+*.spec
+dist/
+build/
